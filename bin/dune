@@ -1,0 +1,8 @@
+(executable
+ (public_name LambdaPC)
+ (name main)
+ ; (libraries Qudits LambdaC LambdaPC)
+ (libraries PCLib)
+)
+
+(env (dev (flags (:standard -warn-error -A))))
