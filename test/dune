@@ -1,4 +1,4 @@
 (test
- (name test_scalars)
+ (name test_all)
  (libraries alcotest PCLib)
- )
+)

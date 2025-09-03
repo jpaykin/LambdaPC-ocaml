@@ -51,8 +51,8 @@ module TestZ3 = TestZ(Z3)
 module Conversions2 = Scalars(FIN2)
 module TestConversions2 = TestConversions(Conversions2)
 
-let () =
-  run "Qudits Test" [
+let suite =
+  [
     "TestZ2", [
       test_case "Testing 3=5"   `Quick (fun () -> TestZ2.test_eq_of_int 3 5);
       test_case "Testing 2=20"  `Quick (fun () -> TestZ2.test_eq_of_int 2 20);
@@ -85,5 +85,5 @@ let () =
           (fun () -> TestConversions2.test_sgn 2);
       test_case "Testing sgn for d=2" `Quick
           (fun () -> TestConversions2.test_sgn 3);
-    ]
+    ];
   ]

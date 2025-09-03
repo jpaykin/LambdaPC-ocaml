@@ -25,6 +25,19 @@ module Expr : sig
   val map : (int -> int) -> t -> t
 end
 
+
+module HOAS : sig
+  val env : environment
+  val var : Variable.t -> Expr.t
+  val zero : ltype -> Expr.t
+  val (+) : Expr.t -> Expr.t -> Expr.t
+  val const : int -> Expr.t
+  val ( * ) : Expr.t -> Expr.t -> Expr.t
+  val case : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
+  val lambda : ltype -> (Variable.t -> Expr.t) -> Expr.t
+  val (@) : Expr.t -> Expr.t -> Expr.t    
+end
+
 module Val : sig
   type t =
     | Const of int

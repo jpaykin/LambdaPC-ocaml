@@ -87,8 +87,28 @@ module Expr = struct
       | Apply (e1,e2) -> 
         Apply (map f e1, map f e2)
 
+
   end
 
+module HOAS = struct
+  let env : environment = { fresh_var = ref 0; }
+
+  let var x = Expr.Var x
+  let zero tp = Expr.Zero tp
+  let (+) e1 e2 = Expr.Plus (e1,e2)
+  let const x = Expr.Const x
+  let ( * ) e1 e2 = Expr.Scale (e1,e2)
+  let case e fx fz =
+      let x = fresh env in
+      let z = fresh env in
+      Expr.Case(e, x, fx x, z, fz z)
+  
+  let lambda tp (f : Variable.t -> Expr.t) =
+      let x = fresh env in
+      Expr.Lambda (x, tp, f x)
+  let (@) e1 e2 = Expr.Apply (e1, e2)
+    
+end
 
 module Val = struct
 
