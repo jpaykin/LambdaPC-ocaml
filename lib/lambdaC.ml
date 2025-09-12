@@ -19,11 +19,16 @@ module Variable = struct
 end
 module VariableMap = Map.Make(Variable)
 
-type environment = { fresh_var : Variable.t ref }
-let fresh (env : environment) : Variable.t =
-  let x = !(env.fresh_var) in
-  env.fresh_var := x+1;
-  x
+module VariableEnvironment = struct
+  type t = Variable.t ref
+  
+  let init : t = {contents = 0}
+  let fresh (x : t) : Variable.t =
+    let y = !x in
+    x := y + 1;
+    y
+end 
+
 
 module Expr = struct
 
@@ -91,20 +96,22 @@ module Expr = struct
   end
 
 module HOAS = struct
-  let env : environment = { fresh_var = ref 0; }
+  let var_env : VariableEnvironment.t ref = {contents = VariableEnvironment.init}
+  let set_variable_environment (env : VariableEnvironment.t) = var_env := env
+  let fresh () : Variable.t = VariableEnvironment.fresh !var_env
 
-  let var x = Expr.Var x
+   let var x = Expr.Var x
   let zero tp = Expr.Zero tp
   let (+) e1 e2 = Expr.Plus (e1,e2)
   let const x = Expr.Const x
   let ( * ) e1 e2 = Expr.Scale (e1,e2)
   let case e fx fz =
-      let x = fresh env in
-      let z = fresh env in
+      let x = fresh() in
+      let z = fresh() in
       Expr.Case(e, x, fx x, z, fz z)
   
   let lambda tp (f : Variable.t -> Expr.t) =
-      let x = fresh env in
+      let x = fresh() in
       Expr.Lambda (x, tp, f x)
   let (@) e1 e2 = Expr.Apply (e1, e2)
     
@@ -140,66 +147,69 @@ module Val = struct
   end
 
 module Eval (Zd : Z_SIG) = struct
-  let rec vzero (ltp : ltype) (env : environment) =
+  let var_env : VariableEnvironment.t ref = {contents = VariableEnvironment.init}
+  let set_variable_environment (env : VariableEnvironment.t) = var_env := env
+  let fresh () : Variable.t = VariableEnvironment.fresh !var_env
+
+  let rec vzero (ltp : ltype) =
     match ltp with
     | Unit -> Val.Const 0
     | Sum (ltp1, ltp2) ->
-        let v1 = vzero ltp1 env in
-        let v2 = vzero ltp2 env in
+        let v1 = vzero ltp1 in
+        let v2 = vzero ltp2 in
         Val.Pair (v1, v2)
     | Arrow (ltp1, ltp2) ->
-        let x = !(env.fresh_var) in
-        env.fresh_var := x+1;
-        let v = vzero ltp2 env in
+        let x = fresh() in
+        let v = vzero ltp2 in
         Val.Lambda (x, ltp1, Val.expr_of_t v)
 
 
-  let rec vplus (env : environment) (v1 : Val.t) (v2 : Val.t) : Val.t =
+  let rec vplus (v1 : Val.t) (v2 : Val.t) : Val.t =
     match v1, v2 with
     | Val.Const c1, Val.Const c2 -> Val.Const (Zd.normalize(c1 + c2))
     | Val.Pair (a1, b1), Val.Pair (a2, b2) ->
-      Val.Pair (vplus env a1 a2, vplus env b1 b2)
+      Val.Pair (vplus a1 a2, vplus b1 b2)
     | Val.Lambda (x1, tp1, e1), Val.Lambda (x2, tp2, e2) ->
         if tp1 = tp2 then
-            let fresh_x = fresh env in
+            let fresh_x = fresh() in
             let e1' = Expr.rename_var x1 fresh_x e1 in
             let e2' = Expr.rename_var x2 fresh_x e2 in
             Val.Lambda (fresh_x, tp1, Expr.Plus (e1', e2'))
         else
             failwith "vplus: Lambda types do not match"
-    | _, _ -> failwith "vplus: mismatched lval types"
+    | _, _ -> failwith "vplus: mismatched values"
 
-  let rec vscale (env : environment) (v1 : int) (v2 : Val.t) : Val.t =
+  let rec vscale (v1 : int) (v2 : Val.t) : Val.t =
     match v2 with
     | Val.Const c -> Val.Const (v1 * c)
-    | Val.Pair (a, b) -> Val.Pair (vscale env v1 a, vscale env v1 b)
+    | Val.Pair (a, b) -> Val.Pair (vscale v1 a, vscale v1 b)
     | Val.Lambda (x, tp, e) -> Val.Lambda (x, tp, Scale (Const v1, e))
 
-  let rec eval (env : environment) (ctx : Val.t VariableMap.t) (e : Expr.t) : Val.t =
+  let rec eval (ctx : Val.t VariableMap.t) (e : Expr.t) : Val.t =
     match e with
     | Var x -> (try VariableMap.find x ctx with Not_found -> failwith "Unbound variable")
-    | Zero tp -> vzero tp env
+    | Zero tp -> vzero tp
     | Const c -> Val.Const (Zd.normalize c)
-    | Plus (e1, e2) -> vplus env (eval env ctx e1) (eval env ctx e2)
+    | Plus (e1, e2) -> vplus (eval ctx e1) (eval ctx e2)
     | Scale (e1, e2) ->
-        (match eval env ctx e1 with
-        | Val.Const c -> vscale env c (eval env ctx e2)
+        (match eval ctx e1 with
+        | Val.Const c -> vscale c (eval ctx e2)
         | _ -> failwith "Scale: first argument must be a scalar")
-    | Pair (e1, e2) -> Val.Pair (eval env ctx e1, eval env ctx e2)
+    | Pair (e1, e2) -> Val.Pair (eval ctx e1, eval ctx e2)
     | Case (scrut, x1, e1, x2, e2) ->
-        (match eval env ctx scrut with
+        (match eval ctx scrut with
         | Val.Pair (v1, v2) ->
             let ctx1 = VariableMap.add x1 v1 ctx in
             let ctx2 = VariableMap.add x2 v2 ctx in
-            vplus env (eval env ctx1 e1) (eval env ctx2 e2)
+            vplus (eval ctx1 e1) (eval ctx2 e2)
         | _ -> failwith "Case: scrutinee must be a pair")
     | Lambda (x, tp, body) -> Val.Lambda (x, tp, body)
     | Apply (e1, e2) ->
-        (match eval env ctx e1 with
+        (match eval ctx e1 with
         | Val.Lambda (x, _tp, body) ->
-            let arg = eval env ctx e2 in
+            let arg = eval ctx e2 in
             let ctx' = VariableMap.add x arg ctx in
-            eval env ctx' body
+            eval ctx' body
         | _ -> failwith "Apply: not a lambda")
 
 
@@ -230,17 +240,3 @@ let lval_example = eval env_example ctx_example lexpr_example_3
 *)
 end
 
-
-
-module Conversions (S : SCALARS) = struct
-  
-  open S
-  module E = Eval(Zd')
-
-  let sgn (v' : Val.t) : Zd0.t =
-    let f (x : int) = Zd'.int_of_t (inc_d_d' (mod_d'_d (Zd'.t_of_int(x)))) in
-    let v'' = Val.map f v' in
-    let r' = E.symplectic_form v' v'' in
-    div_d r'
-
-end

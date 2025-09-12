@@ -1,6 +1,7 @@
 
 open PCLib
 
+(*
 module Z2 = Qudits.Z(Qudits.FIN2)
 module E = LambdaC.Expr(Z2)
 module V = LambdaC.Val(Z2)
@@ -18,5 +19,6 @@ let lval_example = Eval.eval env_example ctx_example lexpr_example_3
 
 (** Tests *)
 let () = print_endline (V.string_of_t lval_example)
+*)
 
 let () = print_endline "Hello!"

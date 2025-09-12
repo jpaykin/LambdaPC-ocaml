@@ -20,10 +20,9 @@ module TestEval (Zd : Z_SIG) = struct
       failf "Values not equal.\n  1: %s \n  2: %s\n" (Val.string_of_t v1) (Val.string_of_t v2)
 
   let test_eval e1 e2 =
-    let env : environment = { fresh_var = ref 0; } in
     let ctx = VariableMap.empty in
-    let v1 = EvalZd.eval env ctx e1 in
-    let v2 = EvalZd.eval env ctx e2 in
+    let v1 = EvalZd.eval ctx e1 in
+    let v2 = EvalZd.eval ctx e2 in
     test_val_eq v1 v2
 end
 

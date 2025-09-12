@@ -5,8 +5,13 @@ val string_of_ltype : ltype -> string
 
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
-type environment = { fresh_var : Variable.t ref }
-val fresh : environment -> Variable.t
+
+
+module VariableEnvironment : sig
+  type t
+  val init : t
+  val fresh : t -> Variable.t
+end 
 
 module Expr : sig
   type t =
@@ -26,8 +31,11 @@ module Expr : sig
 end
 
 
+
 module HOAS : sig
-  val env : environment
+  val var_env : VariableEnvironment.t ref
+  val set_variable_environment : VariableEnvironment.t -> unit
+
   val var : Variable.t -> Expr.t
   val zero : ltype -> Expr.t
   val (+) : Expr.t -> Expr.t -> Expr.t
@@ -50,11 +58,13 @@ end
 
 
 module Eval : functor (Zd : Z_SIG) -> sig
+  val var_env : VariableEnvironment.t ref
+  val set_variable_environment : VariableEnvironment.t -> unit
 
-  val vzero  : ltype -> environment -> Val.t
-  val vplus  : environment -> Val.t -> Val.t -> Val.t
-  val vscale : environment -> int -> Val.t -> Val.t
-  val eval : environment -> Val.t VariableMap.t -> Expr.t -> Val.t
+  val vzero  : ltype -> Val.t
+  val vplus  : Val.t -> Val.t -> Val.t
+  val vscale : int -> Val.t -> Val.t
+  val eval : Val.t VariableMap.t -> Expr.t -> Val.t
 
   val symplectic_form : Val.t -> Val.t -> Zd.t
 
@@ -65,10 +75,3 @@ end
   val map_expr : (A.t -> B.t) -> Expr.t -> Expr.t
   val map_lval : (A.t -> B.t) -> Val.t -> Val.t
 end *)
-
-
-
-module Conversions (Conv : SCALARS) : sig
-  open Conv
-  val sgn : Val.t -> Zd0.t
-end
