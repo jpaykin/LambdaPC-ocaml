@@ -1,12 +1,15 @@
 open Scalars
 
-type pctype =
-    Pauli | PTensor of pctype * pctype
+module Type = struct
 
-let rec ltype_of_pctype (tp : pctype) : LambdaC.ltype =
+  type t =
+    Pauli | PTensor of t * t
+
+  let rec ltype_of_t (tp : t) : LambdaC.Type.t =
     match tp with
     | Pauli -> Sum (Unit, Unit)
-    | PTensor (tp1, tp2) -> Sum (ltype_of_pctype tp1, ltype_of_pctype tp2)
+    | PTensor (tp1, tp2) -> Sum (ltype_of_t tp1, ltype_of_t tp2)
+end
 
 module Variable = LambdaC.Variable
 module VariableMap = LambdaC.VariableMap
@@ -22,8 +25,8 @@ module Expr = struct
     | Prod  of t * t
     | Pow   of t * int
     | CasePauli of t * t * t
-    | In1   of t * pctype
-    | In2   of pctype * t
+    | In1   of t * Type.t
+    | In2   of Type.t * t
     | CasePTensor of t * Variable.t * t * Variable.t * t
   
   (*val string_of_t : t -> string*)
@@ -191,11 +194,11 @@ module Eval (S : SCALARS) = struct
 
     | In1 (e',tp2) ->
       let {phase = r; value = v} = eval ctx e' in
-      let v' = LambdaC.Val.Pair (v, LEval.vzero (ltype_of_pctype tp2)) in
+      let v' = LambdaC.Val.Pair (v, LEval.vzero (Type.ltype_of_t tp2)) in
       {phase = r; value = v'}
     | In2 (tp1, e') ->
       let {phase = r; value = v} = eval ctx e' in
-      let v' = LambdaC.Val.Pair (LEval.vzero (ltype_of_pctype tp1), v) in
+      let v' = LambdaC.Val.Pair (LEval.vzero (Type.ltype_of_t tp1), v) in
       {phase = r; value = v'}
 
     | CasePTensor(e', x1, e1, x2, e2) ->

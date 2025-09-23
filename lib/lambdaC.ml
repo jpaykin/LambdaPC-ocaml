@@ -1,17 +1,19 @@
 open Scalars
 
-type ltype =
-    | Unit
-    | Sum of ltype * ltype
-    | Arrow of ltype * ltype
+module Type = struct
 
+  type t =
+      | Unit
+      | Sum of t * t
+      | Arrow of t * t
 
-let rec string_of_ltype tp =
-        match tp with
-        | Unit -> "Unit"
-        | Sum (t1, t2) -> "Sum(" ^ string_of_ltype t1 ^ ", " ^ string_of_ltype t2 ^ ")"
-        | Arrow (t1, t2) -> "Arrow(" ^ string_of_ltype t1 ^ " -> " ^ string_of_ltype t2 ^ ")"
+  let rec string_of_t tp =
+          match tp with
+          | Unit -> "Unit"
+          | Sum (t1, t2) -> "Sum(" ^ string_of_t t1 ^ ", " ^ string_of_t t2 ^ ")"
+          | Arrow (t1, t2) -> "Arrow(" ^ string_of_t t1 ^ " -> " ^ string_of_t t2 ^ ")"
 
+end
 
 module Variable = struct
   type t = int
@@ -27,6 +29,9 @@ module VariableEnvironment = struct
     let y = !x in
     x := y + 1;
     y
+
+  let update (x : Variable.t) (env : t) : unit =
+    env := max (x+1) !env
 end 
 
 
@@ -34,19 +39,19 @@ module Expr = struct
 
   type t =
       Var of Variable.t
-    | Zero of ltype
+    | Zero of Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
     | Pair of t * t
     | Case of t * Variable.t * t * Variable.t * t
-    | Lambda of Variable.t * ltype * t
+    | Lambda of Variable.t * Type.t * t
     | Apply of t * t
 
     let rec string_of_t e =
       match e with
       | Var x -> "Var(" ^ string_of_int x ^ ")"
-      | Zero tp -> "Zero(" ^ string_of_ltype tp ^ ")"
+      | Zero tp -> "Zero(" ^ Type.string_of_t tp ^ ")"
       | Plus (e1, e2) -> "Plus(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
       | Const c -> "Const(" ^ string_of_int c ^ ")"
       | Scale (e1, e2) -> "Scale(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
@@ -54,7 +59,7 @@ module Expr = struct
       | Case (scrut, x1, e1, x2, e2) ->
           "Case(" ^ string_of_t scrut ^ ", " ^ string_of_int x1 ^ ", " ^ string_of_t e1 ^ ", " ^ string_of_int x2 ^ ", " ^ string_of_t e2 ^ ")"
       | Lambda (x, tp, body) ->
-          "Lambda(" ^ string_of_int x ^ ":" ^ string_of_ltype tp ^ ". " ^ string_of_t body ^ ")"
+          "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ string_of_t body ^ ")"
       | Apply (e1, e2) -> "Apply(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
 
     let rec rename_var (from : Variable.t) (to_ : Variable.t) (e : t) : t =
@@ -92,7 +97,50 @@ module Expr = struct
       | Apply (e1,e2) -> 
         Apply (map f e1, map f e2)
 
+    let rec update_env env e =
+      match e with
+      | Var x -> VariableEnvironment.update x env
+      | Zero _ -> ()
+      | Plus (e1, e2) -> update_env env e1; update_env env e2
+      | Const _ -> ()
+      | Scale (e1, e2) -> update_env env e1; update_env env e2
+      | Pair (e1, e2) -> update_env env e1; update_env env e2
+      | Case (e', x1, e1', x2, e2') ->
+        update_env env e';
+        VariableEnvironment.update x1 env;
+        VariableEnvironment.update x2 env;
+        update_env env e1';
+        update_env env e2'
+      | Lambda (x,_,e') ->
+        VariableEnvironment.update x env;
+        update_env env e'
+      | Apply (e1, e2) -> update_env env e1; update_env env e2
 
+    (* alpha equivalence *)
+    let rec alpha_equiv' (env : VariableEnvironment.t) e1 e2 =
+      match e1, e2 with
+      | Var x1, Var x2 -> x1 = x2
+      | Zero tp1, Zero tp2 -> tp1 = tp2
+      | Plus (e11,e12), Plus(e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
+      | Const v1, Const v2 -> v1 = v2
+      | Scale (e11,e12), Scale (e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
+      | Pair (e11,e12), Pair (e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
+      | Case (e1',x11,e11,x12,e12), Case(e2',x21,e21,x22,e22) ->
+        let x = VariableEnvironment.fresh env in
+        alpha_equiv' env e1' e2'
+        && alpha_equiv' env (rename_var x11 x e11) (rename_var x21 x e21)
+        && alpha_equiv' env (rename_var x12 x e12) (rename_var x22 x e22)
+      | Lambda (x1, tp1, e1), Lambda (x2, tp2, e2) ->
+        let x = VariableEnvironment.fresh env in
+        tp1 = tp2 && alpha_equiv' env (rename_var x1 x e1) (rename_var x2 x e2)
+      | Apply (e11,e12), Apply (e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
+      | _, _ -> false
+
+    let alpha_equiv e1 e2 =
+      let env = VariableEnvironment.init in
+      update_env env e1;
+      update_env env e2;
+      alpha_equiv' env e1 e2
   end
 
 module HOAS = struct
@@ -122,14 +170,14 @@ module Val = struct
     type t =
       | Const of int
       | Pair of t * t
-      | Lambda of Variable.t * ltype * Expr.t
+      | Lambda of Variable.t * Type.t * Expr.t
 
     let rec string_of_t v =
           match v with
           | Const c -> string_of_int c
           | Pair (v1, v2) -> "(" ^ string_of_t v1 ^ ", " ^ string_of_t v2 ^ ")"
           | Lambda (x, tp, e) ->
-              "Lambda(" ^ string_of_int x ^ ":" ^ string_of_ltype tp ^ ". " ^ Expr.string_of_t e ^ ")"
+              "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.string_of_t e ^ ")"
 
     let rec expr_of_t v =
       match v with
@@ -144,6 +192,8 @@ module Val = struct
         | Pair (v1, v2) -> Pair (map f v1, map f v2)
         | Lambda (x,tp,e) -> Lambda (x,tp, Expr.map f e)
 
+    let alpha_equiv v1 v2 = Expr.alpha_equiv (expr_of_t v1) (expr_of_t v2)
+
   end
 
 module Eval (Zd : Z_SIG) = struct
@@ -151,7 +201,7 @@ module Eval (Zd : Z_SIG) = struct
   let set_variable_environment (env : VariableEnvironment.t) = var_env := env
   let fresh () : Variable.t = VariableEnvironment.fresh !var_env
 
-  let rec vzero (ltp : ltype) =
+  let rec vzero (ltp : Type.t) =
     match ltp with
     | Unit -> Val.Const 0
     | Sum (ltp1, ltp2) ->
@@ -228,15 +278,4 @@ module Eval (Zd : Z_SIG) = struct
     | _, _ -> failwith "symplectic_form: values must be symplectic"
 
 
-(** Tests *)
-(*
-let lexpr_example_1 = Plus (Var 0, Const (Zd.t_of_int 3))
-let lexpr_example_2 = Lambda (1, Unit, Plus (Var 1, Zero Unit))
-let lexpr_example_3 = Apply (lexpr_example_2, lexpr_example_1)
-
-let ctx_example = VariableMap.singleton 0 (VConst (Zd.t_of_int 39))
-let env_example = { fresh_var = ref 100 }
-let lval_example = eval env_example ctx_example lexpr_example_3
-*)
 end
-

@@ -5,5 +5,7 @@ let () =
   run "LambdaPC tests" (
     Test_scalars.suite
     @
-    Test_lambdaC.suite;
+    Test_lambdaC.suite
+    @
+    Test_lambdaPC.suite;
   )
