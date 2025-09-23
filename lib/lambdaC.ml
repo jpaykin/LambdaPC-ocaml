@@ -129,7 +129,7 @@ module Val = struct
           | Const c -> string_of_int c
           | Pair (v1, v2) -> "(" ^ string_of_t v1 ^ ", " ^ string_of_t v2 ^ ")"
           | Lambda (x, tp, e) ->
-              "λ" ^ string_of_int x ^ ":" ^ string_of_ltype tp ^ ".(" ^ Expr.string_of_t e ^ ")"
+              "Lambda(" ^ string_of_int x ^ ":" ^ string_of_ltype tp ^ ". " ^ Expr.string_of_t e ^ ")"
 
     let rec expr_of_t v =
       match v with
