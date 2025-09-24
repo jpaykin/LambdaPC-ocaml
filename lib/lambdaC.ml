@@ -279,3 +279,115 @@ module Eval (Zd : Z_SIG) = struct
 
 
 end
+
+module Typing = struct
+  type typing_context = Type.t VariableMap.t
+
+  module Usage = struct
+    type t = Z | L | Inf | Unknown
+
+    let (+) (u1 : t) (u2 : t) : t =
+      match u1, u2 with
+      | Z, u | u, Z -> u
+      | Unknown, u | u, Unknown -> u
+      | L, L | Inf, _ | _, Inf -> Inf
+
+    let unify u1 u2 : t option =
+      match u1, u2 with
+      | Unknown, u | u, Unknown -> Some u
+      | L, L | Z, Z | Inf, Inf -> Some u1
+      | _, _ -> None
+
+  end
+  module UsageContext = struct
+
+    type t = Usage.t VariableMap.t
+
+    let (+) = VariableMap.merge (fun _ o1 o2 ->
+      match o1, o2 with
+      | Some u1, Some u2 -> Some Usage.(u1 + u2)
+      | _, _ -> None
+      )
+
+    let unify = VariableMap.merge (fun _ o1 o2 ->
+      match o1, o2 with
+      | Some u1, Some u2 -> Usage.unify u1 u2
+      | _, _ -> None
+      )
+
+    let is_linear_in x ctx =
+      match VariableMap.find_opt x ctx with
+      | Some Usage.L | Some Usage.Unknown -> true
+      | _ -> false
+
+  end
+
+  exception TypeError of string
+
+  let type_of_var gamma (x : Variable.t) : Type.t * UsageContext.t =
+    match VariableMap.find_opt x gamma with
+    | None ->
+      let msg = "Variable " ^ string_of_int x ^ " not found in the typing context" in
+      raise (TypeError msg)
+    | Some tp -> (tp, VariableMap.singleton x Usage.L)
+
+  let rec type_of' (gamma : typing_context)
+                  (e : Expr.t) : Type.t * UsageContext.t =
+    match e with
+    | Var x -> type_of_var gamma x
+    | Zero tp -> (tp, VariableMap.map (fun _ -> Usage.Unknown) gamma)
+    | Plus (e1, e2) ->
+      let (tp1, usage1) = type_of' gamma e1 in
+      let (tp2, usage2) = type_of' gamma e2 in
+      if not(tp1 = tp2)
+      then raise (TypeError "Plus: expressions must have the same type")
+      else (tp1, UsageContext.unify usage1 usage2)
+    | Const _ -> (Unit, VariableMap.map (fun _ -> Usage.Z) gamma)
+    | Scale (e1, e2) -> 
+      let (tp1, usage1) = type_of' gamma e1 in
+      let (tp2, usage2) = type_of' gamma e2 in
+      (match tp1 with
+       | Unit -> (tp2, UsageContext.(usage1 + usage2))
+       | _ -> raise (TypeError "Scale: first argument must have type Unit")
+      )
+    | Pair (e1, e2) -> 
+      let (tp1, usage1) = type_of' gamma e1 in
+      let (tp2, usage2) = type_of' gamma e2 in
+      (Sum (tp1, tp2), UsageContext.unify usage1 usage2)
+
+    | Case (e0, x1, e1, x2, e2) ->
+      (match type_of' gamma e0 with
+       | (Sum(tp1,tp2), usage') ->
+         let gamma1 = VariableMap.add x1 tp1 gamma in
+         let gamma2 = VariableMap.add x2 tp2 gamma in
+         let (tp1', usage1) = type_of' gamma1 e1 in
+         let (tp2', usage2) = type_of' gamma2 e2 in
+         if not (tp1' = tp2')
+         then raise (TypeError "Case: branches must have the same type")
+         else let usage'' = UsageContext.(usage' + unify usage1 usage2) in
+              (tp1', usage'')
+       | _ -> raise (TypeError "Case: first argument must have Sum type")
+      )
+    | Lambda (x, tp, e') -> 
+      let gamma' = VariableMap.add x tp gamma in
+      let (tp', usage') = type_of' gamma' e' in
+      (* check that x is used linearly in e' *)
+      if not (UsageContext.is_linear_in x usage')
+      then raise (TypeError "Lambda: variable not used linearly in body")
+      else let usage0 = VariableMap.remove x usage' in
+           (Arrow (tp, tp'), usage0)
+    | Apply (e1, e2) ->
+      (match type_of' gamma e1, type_of' gamma e2 with
+       | (Arrow (tp,tp'), usage1), (tp0, usage2)
+        when tp = tp0 -> (tp', UsageContext.(usage1 + usage2))
+       | _, _ -> raise (TypeError "Apply: function and argument types do not match")
+      )
+
+    let type_of (gamma : typing_context) (e : Expr.t) : Type.t =
+      let (tp, usage) = type_of' gamma e in
+      let success_criteria x _ = UsageContext.is_linear_in x usage
+      in 
+      if VariableMap.for_all success_criteria gamma
+      then tp
+      else raise (TypeError "Non-linear use of variables")
+end
