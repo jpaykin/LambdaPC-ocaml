@@ -62,6 +62,29 @@ module Expr = struct
   and string_of_p e = match e with
       | Suspend e' -> string_of_t e'
 
+let rec pretty_string_of_t e = 
+    match e with
+      | Var x -> "x" ^ string_of_int x
+      | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
+      | LExpr le -> LambdaC.Expr.pretty_string_of_t le
+      | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
+      | Prod (t1, t2) -> pretty_string_of_t t1 ^ " star " ^ pretty_string_of_t t2
+      | Pow (t, n) -> "(" ^ pretty_string_of_t t ^ ")^(" ^ string_of_int n ^ ")"
+      | CasePauli (e, t1, t2) -> "case " ^ pretty_string_of_t e ^ " of { X -> " ^ pretty_string_of_t t1 ^ " | Z -> " ^ pretty_string_of_t t2 ^ "}"
+      | In1 (t,_tp) -> "in1(" ^ pretty_string_of_t t ^ ")"
+      | In2 (_,t) -> "in2(" ^ pretty_string_of_t t ^ ")"
+      | CasePTensor (e, x1, t1, x2, t2) ->
+        "case " ^ pretty_string_of_t e
+                ^ " of { in1 x" ^  string_of_int x1 ^ " -> " ^ pretty_string_of_t t1 
+                ^ " | in2 x" ^ string_of_int x2 ^ " -> " ^ pretty_string_of_t t2 ^ "}"
+
+      | Apply (f, e) -> "(" ^ pretty_string_of_pc f ^ ") @ (" ^ pretty_string_of_t e ^ ")"
+      | Force e' -> pretty_string_of_p e'
+  and pretty_string_of_pc f = match f with
+      | Lam (x, tp, e) -> "lambda x" ^ string_of_int x ^ " : " ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t e
+  and pretty_string_of_p e = match e with
+      | Suspend e' -> pretty_string_of_t e'
+
   let rec rename_var (from : Variable.t) (to_ : Variable.t) e =
       match e with
       | Var x ->
@@ -101,7 +124,7 @@ module Val = struct
   type t = { phase : int; value : LambdaC.Val.t }
 
   let string_of_t (cfg : t) : string =
-    "<" ^ string_of_int cfg.phase ^ "> " ^ LambdaC.Val.string_of_t cfg.value
+    "<" ^ string_of_int cfg.phase ^ "> " ^ LambdaC.Val.pretty_string_of_t cfg.value
 
   let pure (v : LambdaC.Val.t) = { phase = 0; value = v }
 
@@ -272,4 +295,5 @@ module Eval (S : SCALARS) = struct
         add_phase r (eval ctx' e)
     | Force (Suspend e') -> eval (VariableMap.empty) e'
 
+  let evalClosed e = eval VariableMap.empty e
 end

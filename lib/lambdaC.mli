@@ -29,6 +29,7 @@ module Expr : sig
     | Apply of t * t
 
   val string_of_t : t -> string
+  val pretty_string_of_t : t -> string
   val rename_var : Variable.t -> Variable.t -> t -> t
   val map : (int -> int) -> t -> t
   val update_env : VariableEnvironment.t -> t -> unit
@@ -58,6 +59,7 @@ module Val : sig
     | Pair of t * t
     | Lambda of Variable.t * Type.t * Expr.t
   val string_of_t : t -> string
+  val pretty_string_of_t : t -> string
   val expr_of_t : t -> Expr.t
   val map : (int -> int) -> t -> t
   val alpha_equiv : t -> t -> bool

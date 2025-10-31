@@ -1,4 +1,4 @@
 (library
  (name PCLib)
- (modules Scalars LambdaC LambdaPC)
+ (modules Scalars LambdaC LambdaPC Examples)
 )

@@ -30,13 +30,15 @@ end
 module Z (D : FIN) : Z_SIG = struct
   type t = int
   module Dim = D
-  let t_of_int x = x mod D.dim
+
+  let modpos a b = let r = a mod b in if r < 0 then r + b else r
+  let t_of_int x = modpos x D.dim
   let int_of_t x = x
   let string_of_t = string_of_int
   let normalize x = int_of_t (t_of_int x)
-  let (+) x y = (x + y) mod D.dim
-  let (-) x y = (x - y) mod D.dim
-  let ( * ) x y = (x*y) mod D.dim
+  let (+) x y = modpos (x + y) D.dim
+  let (-) x y = modpos (x - y) D.dim
+  let ( * ) x y = modpos (x*y) D.dim
 end
 
 
@@ -74,7 +76,7 @@ module Scalars (D : FIN) : SCALARS = struct
   let times_d2 (r0 : Zd0.t) : Zd.t =
     let x0 = Zd0.int_of_t r0 in
     let d = Zd.Dim.dim in
-    Zd.t_of_int (d * x0 / 2)
+    Zd.t_of_int ((d * x0) / 2)
 
   let sgn = div_d
 end

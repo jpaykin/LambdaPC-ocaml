@@ -62,6 +62,28 @@ module Expr = struct
           "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ string_of_t body ^ ")"
       | Apply (e1, e2) -> "Apply(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
 
+    
+    let rec pretty_string_of_t e =
+      match e with
+      | Var x -> "x" ^ string_of_int x
+      | Zero tp -> "0{" ^ Type.string_of_t tp ^ "}"
+      | Plus (e1, e2) -> pretty_string_of_t e1 ^ " + " ^ pretty_string_of_t e2
+      | Const c -> string_of_int c
+      | Scale (e1, e2) -> pretty_string_of_t e1 ^ " * " ^ pretty_string_of_t e2
+      | Pair (Const 0, Const 0) -> "I"
+      | Pair (Const 1, Const 0) -> "X"
+      | Pair (Const 0, Const 1) -> "Z"
+      | Pair (Const 1, Const 1) -> "Y"
+      | Pair (e1, e2) -> "[" ^ pretty_string_of_t e1 ^ ", " ^ pretty_string_of_t e2 ^ "]"
+      | Case (scrut, x1, e1, x2, e2) ->
+          "case " ^ pretty_string_of_t scrut
+          ^ " of { x" ^ string_of_int x1 ^ " -> " ^ pretty_string_of_t e1 
+          ^ " | x" ^ string_of_int x2 ^ " -> " ^ pretty_string_of_t e2 ^ "}"
+      | Lambda (x, tp, body) ->
+          "lambda x" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t body
+      | Apply (e1, e2) -> pretty_string_of_t e1 ^ " @ " ^ pretty_string_of_t e2
+
+
     let rec rename_var (from : Variable.t) (to_ : Variable.t) (e : t) : t =
       match e with
       | Var x -> if x = from then Var to_ else Var x
@@ -179,6 +201,18 @@ module Val = struct
           | Lambda (x, tp, e) ->
               "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.string_of_t e ^ ")"
 
+
+    let rec pretty_string_of_t v =
+          match v with
+          | Const c -> string_of_int c
+          | Pair (Const 0, Const 0) -> "I"
+          | Pair (Const 1, Const 0) -> "X"
+          | Pair (Const 0, Const 1) -> "Z"
+          | Pair (Const 1, Const 1) -> "Y"
+          | Pair (v1, v2) -> "(" ^ pretty_string_of_t v1 ^ ", " ^ pretty_string_of_t v2 ^ ")"
+          | Lambda (x, tp, e) ->
+              "lambda x" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.pretty_string_of_t e
+
     let rec expr_of_t v =
       match v with
       | Const c -> Expr.Const c
@@ -268,9 +302,9 @@ module Eval (Zd : Z_SIG) = struct
     | Val.Pair (Val.Const rz1, Val.Const rx1),
       Val.Pair (Val.Const rz2, Val.Const rx2) ->
         Zd.(
-          Zd.t_of_int(rz1) * Zd.t_of_int(rx2)
-          -
           Zd.t_of_int(rz2) * Zd.t_of_int(rx1)
+          -
+          Zd.t_of_int(rz1) * Zd.t_of_int(rx2)
           )
     | Val.Pair (v11, v12),
       Val.Pair (v21, v22) ->

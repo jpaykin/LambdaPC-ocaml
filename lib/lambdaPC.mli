@@ -26,6 +26,10 @@ module Expr :
     val string_of_t : t -> string
     val string_of_pc : pc -> string
     val string_of_p : p -> string
+    val pretty_string_of_t : t -> string
+    val pretty_string_of_pc : pc -> string
+    val pretty_string_of_p : p -> string
+
     val rename_var : int -> int -> t -> t
   end
 module Val :
@@ -98,4 +102,6 @@ module Eval :
       val cfg_pow : Val.t -> int -> Val.t
       val case_phase : int -> int -> int
       val eval : LambdaC.Val.t VariableMap.t -> Expr.t -> Val.t
+
+      val evalClosed : Expr.t -> Val.t
     end
