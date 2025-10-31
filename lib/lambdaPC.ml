@@ -9,6 +9,11 @@ module Type = struct
     match tp with
     | Pauli -> Sum (Unit, Unit)
     | PTensor (tp1, tp2) -> Sum (ltype_of_t tp1, ltype_of_t tp2)
+
+  let rec string_of_t (tp : t) : string =
+    match tp with
+    | Pauli -> "Pauli" 
+    | PTensor (tp1, tp2) -> string_of_t tp1 ^ "**" ^ string_of_t tp2
 end
 
 module Variable = LambdaC.Variable
@@ -28,6 +33,12 @@ module Expr = struct
     | In1   of t * Type.t
     | In2   of Type.t * t
     | CasePTensor of t * Variable.t * t * Variable.t * t
+    | Apply of pc * t
+    | Force of p
+
+  and pc = Lam of (Variable.t * Type.t * t)
+
+  and p = Suspend of t
   
   (*val string_of_t : t -> string*)
   let rec string_of_t e = 
@@ -42,7 +53,14 @@ module Expr = struct
       | In1 (t,_tp) -> "In1(" ^ string_of_t t ^ ")"
       | In2 (_,t) -> "In2(" ^ string_of_t t ^ ")"
       | CasePTensor (e, x1, t1, x2, t2) ->
-        "CasePTensor(" ^ string_of_t e ^ ", " ^ string_of_int x1 ^ ", " ^ string_of_t t1 ^ ", " ^ string_of_int x2 ^ ", " ^ string_of_t t2 ^ ")" 
+        "CasePTensor(" ^ string_of_t e ^ ", " ^ string_of_int x1 ^ ", " ^ string_of_t t1 ^ ", " ^ string_of_int x2 ^ ", " ^ string_of_t t2 ^ ")"
+
+      | Apply (f, e) -> string_of_pc f ^ " @ " ^ string_of_t e
+      | Force e' -> string_of_p e'
+  and string_of_pc f = match f with
+      | Lam (x, tp, e) -> "lambda " ^ string_of_int x ^ " : " ^ Type.string_of_t tp ^ ". " ^ string_of_t e
+  and string_of_p e = match e with
+      | Suspend e' -> string_of_t e'
 
   let rec rename_var (from : Variable.t) (to_ : Variable.t) e =
       match e with
@@ -74,6 +92,8 @@ module Expr = struct
               x1, e1',
               x2, e2'
           )
+      | Apply (f, e') -> (* no free variables in f *) Apply (f, rename_var from to_ e')
+      | Force e' -> (* no free variables in e' *) Force e'
 
 end
 
@@ -86,6 +106,40 @@ module Val = struct
   let pure (v : LambdaC.Val.t) = { phase = 0; value = v }
 
 end
+
+
+
+module HOAS = struct
+  let fresh = LambdaC.HOAS.fresh
+
+  let var (x : Variable.t) = Expr.Var x
+  let letin e f =
+    let x = fresh() in
+    Expr.Let (e, x, f x)
+  let vec a = Expr.LExpr a
+  let phase a e = Expr.Phase(a, e)
+  let ( ** ) e1 e2 = Expr.Prod(e1,e2)
+  let pow e n = Expr.Pow(e,n)
+  let case1 e ex ez = Expr.CasePauli(e,ex,ez)
+  let in1 e tp2 = Expr.In1 (e,tp2)
+  let in2 tp1 e = Expr.In2 (tp1, e)
+  let case e b1 b2 =
+    let x1 = fresh() in
+    let x2 = fresh() in
+    Expr.CasePTensor(e, x1, b1 x1, x2, b2 x2)
+
+  let lambda tp (f : Variable.t -> Expr.t) =
+      let x = fresh() in
+      Expr.Lam (x, tp, f x)
+  let (@) e1 e2 = Expr.Apply (e1, e2)
+
+  let suspend e = Expr.Suspend e
+  let force e = Expr.Force e
+end
+
+(**************)
+(* EVALUATION *)
+(**************)
 
 module PhaseEnvironment (Zd : Z_SIG) = struct
   type t = Zd.t ref
@@ -211,5 +265,11 @@ module Eval (S : SCALARS) = struct
         add_phase r (cfg_prod cfg1 cfg2)
 
       | _ -> failwith "eval [CasePTensor] -> expected a pair")
+
+    | Apply (Lam (x,_,e), e') ->
+        let {phase = r; value = v} = eval ctx e' in
+        let ctx' = VariableMap.singleton x v in
+        add_phase r (eval ctx' e)
+    | Force (Suspend e') -> eval (VariableMap.empty) e'
 
 end

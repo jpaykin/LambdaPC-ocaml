@@ -40,6 +40,7 @@ end
 module HOAS : sig
   val var_env : VariableEnvironment.t ref
   val set_variable_environment : VariableEnvironment.t -> unit
+  val fresh : unit -> Variable.t
 
   val var : Variable.t -> Expr.t
   val zero : Type.t -> Expr.t
@@ -74,6 +75,12 @@ module Eval : functor (Zd : Z_SIG) -> sig
 
   val symplectic_form : Val.t -> Val.t -> Zd.t
 
+end
+
+module Typing : sig
+  type typing_context = Type.t VariableMap.t
+  exception TypeError of string
+  val type_of : typing_context -> Expr.t -> Type.t
 end
 
 
