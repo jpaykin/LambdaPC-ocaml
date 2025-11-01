@@ -3,6 +3,8 @@
  (flags --explain --dump)
  )
 
+(ocamllex lexer)
+
 (library
  (name pCLib)
  (modules :standard)

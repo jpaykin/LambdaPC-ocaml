@@ -18,6 +18,7 @@ open LambdaPC
 %token DOT
 %token SUSPEND
 %token COMMA
+%token CLIF
 
 %token XCONST
 %token ZCONST
@@ -65,6 +66,8 @@ open LambdaPC
 
 
 %start <LambdaPC.Expr.t> prog
+%start <LambdaPC.Expr.pc> pcprog
+
 %type <LambdaPC.Expr.t> expr
 %type <LambdaC.Expr.t> lexpr
 %type <LambdaPC.Expr.pc> pclif
@@ -79,10 +82,15 @@ open LambdaPC
 prog:
     | e=expr EOF {e}
 
+pcprog:
+    | f=pclif EOF {f}
+
 ptype:
     | PAULI { LambdaPC.Type.Pauli }
     | tp1=ptype TENSOR tp2=ptype
         { LambdaPC.Type.PTensor (tp1,tp2) }
+    | LPAREN tp=ptype RPAREN
+      { tp }
 
 ltype:
     | UNIT
@@ -91,6 +99,8 @@ ltype:
       { LambdaC.Type.Sum (tp1, tp2) }
     | tp1=ltype LOLLI tp2=ltype
       { LambdaC.Type.Arrow (tp1, tp2) }
+    | LPAREN tp=ltype RPAREN
+      { tp }
 
 lexpr:
   | LVARTAG x=ID { LambdaC.Expr.Var x }
@@ -116,6 +126,9 @@ lexpr:
     { LambdaC.Expr.Lambda (x, tp, a) }
   | a1=lexpr DOT AT a2=lexpr
     { LambdaC.Expr.Apply (a1, a2) }
+
+  | LPAREN a=lexpr RPAREN
+    { a }
 
 expr:
   | x=ID
@@ -147,9 +160,11 @@ expr:
 
   | f=pclif AT t=expr
     { Expr.Apply(f, t) }
-
   | p=pauli
     { Expr.Force p }
+
+  | LPAREN t=expr RPAREN
+    { t }
 
 pclif:
   | LAM x=ID COLON tp=ptype DOT t=expr
