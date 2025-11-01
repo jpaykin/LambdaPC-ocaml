@@ -13,7 +13,10 @@ module Type = struct
   let rec string_of_t (tp : t) : string =
     match tp with
     | Pauli -> "Pauli" 
-    | PTensor (tp1, tp2) -> string_of_t tp1 ^ "**" ^ string_of_t tp2
+    | PTensor (Pauli, Pauli) -> "Pauli ** Pauli"
+    | PTensor (Pauli, tp2) -> "Pauli ** (" ^ string_of_t tp2 ^ ")"
+    | PTensor (tp1, Pauli) -> "(" ^ string_of_t tp1 ^ ") ** Pauli"
+    | PTensor (tp1, tp2) -> "(" ^ string_of_t tp1 ^ ") ** (" ^ string_of_t tp2 ^ ")"
 end
 
 module Variable = LambdaC.Variable
@@ -68,7 +71,7 @@ let rec pretty_string_of_t e =
       | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
       | LExpr le -> LambdaC.Expr.pretty_string_of_t le
       | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
-      | Prod (t1, t2) -> pretty_string_of_t t1 ^ " star " ^ pretty_string_of_t t2
+      | Prod (t1, t2) -> "(" ^ pretty_string_of_t t1 ^ ") * (" ^ pretty_string_of_t t2 ^ ")"
       | Pow (t, n) -> "(" ^ pretty_string_of_t t ^ ")^(" ^ string_of_int n ^ ")"
       | CasePauli (e, t1, t2) -> "case " ^ pretty_string_of_t e ^ " of { X -> " ^ pretty_string_of_t t1 ^ " | Z -> " ^ pretty_string_of_t t2 ^ "}"
       | In1 (t,_tp) -> "in1(" ^ pretty_string_of_t t ^ ")"
@@ -141,12 +144,12 @@ module HOAS = struct
     Expr.Let (e, x, f x)
   let vec a = Expr.LExpr a
   let phase a e = Expr.Phase(a, e)
-  let ( ** ) e1 e2 = Expr.Prod(e1,e2)
+  let ( * ) e1 e2 = Expr.Prod(e1,e2)
   let pow e n = Expr.Pow(e,n)
-  let case1 e ex ez = Expr.CasePauli(e,ex,ez)
+  let caseofP e ex ez = Expr.CasePauli(e,ex,ez)
   let in1 e tp2 = Expr.In1 (e,tp2)
   let in2 tp1 e = Expr.In2 (tp1, e)
-  let case e b1 b2 =
+  let caseof e b1 b2 =
     let x1 = fresh() in
     let x2 = fresh() in
     Expr.CasePTensor(e, x1, b1 x1, x2, b2 x2)

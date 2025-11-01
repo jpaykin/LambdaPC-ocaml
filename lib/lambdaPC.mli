@@ -46,12 +46,12 @@ module HOAS : sig
   val letin : Expr.t -> (Variable.t -> Expr.t) -> Expr.t
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
-  val ( ** ) : Expr.t -> Expr.t -> Expr.t
+  val ( * ) : Expr.t -> Expr.t -> Expr.t
   val pow : Expr.t -> int -> Expr.t
-  val case1 : Expr.t -> Expr.t -> Expr.t -> Expr.t
+  val caseofP : Expr.t -> Expr.t -> Expr.t -> Expr.t
   val in1 : Expr.t -> Type.t -> Expr.t
   val in2 : Type.t -> Expr.t -> Expr.t
-  val case : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
+  val caseof : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
   val lambda : Type.t -> (Variable.t -> Expr.t) -> Expr.pc
   val (@) : Expr.pc -> Expr.t -> Expr.t
   val suspend : Expr.t -> Expr.p
