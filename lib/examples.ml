@@ -57,8 +57,8 @@ let pauliXY = in1 pauliX Pauli * in2 Pauli pauliY
 
 let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
     caseof (var q)
-      (fun q1 -> in2 tp1 (var q1))
-      (fun q2 -> in1 (var q2) tp2)
+      (fun q1 -> in2 tp2 (var q1))
+      (fun q2 -> in1 (var q2) tp1)
   )
 
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
@@ -105,5 +105,6 @@ let evalTest () =
   printValuation (qft @ pauliY);
   printValuation (swap Pauli Pauli @ pauliXY);
   printValuation (cnot @ pauliXY);
-  (*error: printValuation (swap Pauli (ntensor 3) @ pauliNegX2Y3);*)
+  printValuation (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
+  printValuation (swap Pauli (ntensor 3) @ pauliNegX2Y3);
   print_endline "\n"

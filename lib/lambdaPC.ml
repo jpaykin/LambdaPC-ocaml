@@ -218,6 +218,8 @@ module Eval (S : SCALARS) = struct
   let cfg_prod (cfg1 : Val.t) (cfg2 : Val.t) : Val.t =
       let {Val.phase = r1; value = v1} = cfg1 in
       let {Val.phase = r2; value = v2} = cfg2 in
+      print_endline ("v1: " ^ Val.string_of_t cfg1);
+      print_endline ("v2: " ^ Val.string_of_t cfg2);
       {
         phase = Zd.normalize(r1 + r2 + Zd.int_of_t(cprod_phase v1 v2));
         value = LEval.vplus v1 v2
@@ -284,11 +286,18 @@ module Eval (S : SCALARS) = struct
     | CasePTensor(e', x1, e1, x2, e2) ->
       (match eval ctx e' with
       | {phase = r; value = LambdaC.Val.Pair (v1,v2)} ->
+        print_endline ("got pair: [" ^ LambdaC.Val.pretty_string_of_t v1
+                                ^ ", " ^ LambdaC.Val.pretty_string_of_t v2
+                                ^ "]");
         let ctx1 = VariableMap.add x1 v1 ctx in
         let cfg1 = eval ctx1 e1 in
+        print_endline "evaluated e1";
         let ctx2 = VariableMap.add x2 v2 ctx in
         let cfg2 = eval ctx2 e2 in
-        add_phase r (cfg_prod cfg1 cfg2)
+        print_endline "evaluated e2";
+        let cfg = cfg_prod cfg1 cfg2 in
+        print_endline "got result";
+        add_phase r cfg
 
       | _ -> failwith "eval [CasePTensor] -> expected a pair")
 
