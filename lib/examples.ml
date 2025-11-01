@@ -13,7 +13,7 @@ let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
 let id tp = lambda tp (fun q -> var q)
 let hadamard = lambda Pauli (fun q -> caseofP (var q) pauliZ pauliX)
 let qft = lambda Pauli (fun q -> caseofP (var q) pauliZ (pow pauliX (-1)))
-let phase = lambda Pauli (fun q ->
+let phasegate = lambda Pauli (fun q ->
     caseofP (var q)
       (*X->*) pauliY
       (*Z->*) pauliZ
