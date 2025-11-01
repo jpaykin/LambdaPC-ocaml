@@ -2,7 +2,7 @@
  (public_name LambdaPC)
  (name main)
  ; (libraries Qudits LambdaC LambdaPC)
- (libraries PCLib)
+ (libraries pCLib)
 )
 
 (env (dev (flags (:standard -warn-error -A))))

@@ -1,4 +1,9 @@
+(menhir
+ (modules parser)
+ (flags --explain --dump)
+ )
+
 (library
- (name PCLib)
- (modules Scalars LambdaC LambdaPC Examples)
+ (name pCLib)
+ (modules :standard)
 )
