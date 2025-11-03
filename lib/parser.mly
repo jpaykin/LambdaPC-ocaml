@@ -80,6 +80,8 @@ open LambdaPC
 
 (* RULES *)
 prog:
+(*   | LET x=ID EQUAL f=pclif SEMICOLON prog
+      {  } *)
     | e=expr EOF {e}
 
 pcprog:

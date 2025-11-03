@@ -88,6 +88,12 @@ let parsePC (s : string) : LambdaPC.Expr.pc =
   let ast = Parser.pcprog Lexer.read lexbuf in
   ast
 
+let parseFromFile (filename : string) : LambdaPC.Expr.t =
+  let f = In_channel.open_bin filename in
+  let lexbuf = Lexing.from_channel f in
+  let ast = Parser.prog Lexer.read lexbuf in
+  ast
+
 let printValuation e =
   print_endline (LambdaPC.Expr.pretty_string_of_t e ^ "\n->*\n");
   let result = Eval2.evalClosed e in
@@ -118,4 +124,41 @@ let evalTest () =
   printValuation (cnot @ pauliXY);
   printValuation (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
   printValuation (swap Pauli (ntensor 3) @ pauliNegX2Y3);
+
+  printValuation (parseFromFile "lib/examples.pc");
+
   print_endline "\n"
+
+  (*
+  
+let phasegate = lambda q : Pauli.
+    case q of
+    { X -> Y
+    | Z -> Z
+    } in
+
+let pauliNegXY = <1> [I, [X, [Y, I]]] in
+let pauliXY = in1{Pauli} X * in2{Pauli} Y in
+
+let swap11 = lambda q : Pauli ** Pauli.
+    case q of
+    { in1 q1 -> in2{Pauli} q1
+    | in2 q2 -> in1{Pauli} q2
+    }
+    in
+
+let cnot = lambda q : Pauli ** Pauli .
+    case q of
+    { in1 q1 -> case q1 of 
+                { X -> [X, X]
+                | Z -> [Z, I]
+                }
+    | in2 q2 -> case q2 of 
+                { X -> [I, X]
+                | Z -> [Z, Z]
+                }
+    }
+    in
+
+cnot @ pauliXY
+*)

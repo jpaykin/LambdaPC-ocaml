@@ -1,0 +1,2 @@
+let hadamard = lambda q : Pauli . case q of { Z -> X | X -> Z } in
+X
