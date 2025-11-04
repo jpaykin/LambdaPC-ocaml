@@ -77,55 +77,31 @@ let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
 (*Scalars (Z FIN2)*)
 module S2 = Scalars.Scalars (Scalars.FIN2)
 module Eval2 = LambdaPC.Eval(S2)
-(* Check that hadamard Y = -Y *)
+open Interface
 
-let parse (s : string) : LambdaPC.Expr.t =
-  let lexbuf = Lexing.from_string s in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
-let parsePC (s : string) : LambdaPC.Expr.pc =
-  let lexbuf = Lexing.from_string s in
-  let ast = Parser.pcprog Lexer.read lexbuf in
-  ast
-
-let parseFromFile (filename : string) : LambdaPC.Expr.t =
-  let f = In_channel.open_bin filename in
-  let lexbuf = Lexing.from_channel f in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
-
-let printValuation e =
-  print_endline (LambdaPC.Expr.pretty_string_of_t e ^ "\n->*\n");
-  let result = Eval2.evalClosed e in
-  print_endline (LambdaPC.Val.string_of_t result ^ "\n")
-let printValuation_string s =
-  printValuation (parse s)
 
 let evalTest () =
 
-  print_endline ("-1 = " ^ S2.Zd.string_of_t (S2.Zd.t_of_int (-1)));
-  let x = Eval2.cprod_phase (LambdaC.Val.Pair (LambdaC.Val.Const 1, LambdaC.Val.Const 0)) (LambdaC.Val.Pair (LambdaC.Val.Const 0, LambdaC.Val.Const 1)) in
-  print_endline ("got " ^ S2.Zd.string_of_t x);
 
   print_endline "\n";
-  printValuation (pauliY);
-  printValuation pauliXY;
-  printValuation (pauliNegX2Y3);
-  printValuation (pow pauliX 1);
-  printValuation (pow pauliZ 0);
-  printValuation (hadamard @ pauliX);
-  printValuation (hadamard @ (phase (const 1) pauliZ));
-  printValuation (pauliZ * pauliX);
-  printValuation (pauliX * pauliZ);
-  printValuation (pauliX * pauliX);
-  printValuation (hadamard @ pauliY);
-  printValuation (qft @ pauliY);
-  printValuation (swap Pauli Pauli @ pauliXY);
-  printValuation (cnot @ pauliXY);
-  printValuation (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
-  printValuation (swap Pauli (ntensor 3) @ pauliNegX2Y3);
+  eval (pauliY);
+  eval pauliXY;
+  eval (pauliNegX2Y3);
+  eval (pow pauliX 1);
+  eval (pow pauliZ 0);
+  eval (hadamard @ pauliX);
+  eval (hadamard @ (phase (const 1) pauliZ));
+  eval (pauliZ * pauliX);
+  eval (pauliX * pauliZ);
+  eval (pauliX * pauliX);
+  eval (hadamard @ pauliY);
+  eval (qft @ pauliY);
+  eval (swap Pauli Pauli @ pauliXY);
+  eval (cnot @ pauliXY);
+  eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
+  eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
 
-  printValuation (parseFromFile "lib/examples.pc");
+  eval (parseFromFile "lib/examples.pc");
 
   print_endline "\n"
 
