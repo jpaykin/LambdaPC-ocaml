@@ -7,6 +7,7 @@ end
 
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
+module UsageContext : Set.S
 
 
 module VariableEnvironment : sig
@@ -20,6 +21,8 @@ module Expr : sig
   type t =
       Var of Variable.t
     | Zero of Type.t
+    | ZeroA of Type.t * UsageContext.t
+    | Annot of t * Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
@@ -80,9 +83,11 @@ module Eval : functor (Zd : Z_SIG) -> sig
 end
 
 module Typing : sig
-  type typing_context = Type.t VariableMap.t
+  type typing_context
+  type usage_context
   exception TypeError of string
-  val type_of : typing_context -> Expr.t -> Type.t
+  exception InferenceError
+  val typecheck : Expr.t -> Type.t
 end
 
 

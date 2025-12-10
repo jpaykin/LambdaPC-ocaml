@@ -30,9 +30,18 @@ module VariableEnvironment = struct
     x := y + 1;
     y
 
+  (* Record the existance of the variable x *)
   let update (x : Variable.t) (env : t) : unit =
     env := max (x+1) !env
 end 
+
+module UsageContext = struct
+  module M = Set.Make(Variable)
+  include M
+  let string_of_t u = List.fold_left (fun str x -> str ^ string_of_int x) "{" (to_list u)  ^ "}"
+
+  let rename from to_ u = M.map (fun z -> if z = from then to_ else z) u
+end
 
 
 module Expr = struct
@@ -40,6 +49,8 @@ module Expr = struct
   type t =
       Var of Variable.t
     | Zero of Type.t
+    | ZeroA of Type.t * UsageContext.t
+    | Annot of t * Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
@@ -52,6 +63,8 @@ module Expr = struct
       match e with
       | Var x -> "Var(" ^ string_of_int x ^ ")"
       | Zero tp -> "Zero(" ^ Type.string_of_t tp ^ ")"
+      | ZeroA (tp, u) -> "Zero( " ^ Type.string_of_t tp ^ ", " ^ UsageContext.string_of_t u ^ ")"
+      | Annot (e, tp) -> "Annot( " ^ string_of_t e ^ ", " ^ Type.string_of_t tp ^ ")"
       | Plus (e1, e2) -> "Plus(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
       | Const c -> "Const(" ^ string_of_int c ^ ")"
       | Scale (e1, e2) -> "Scale(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
@@ -67,6 +80,8 @@ module Expr = struct
       match e with
       | Var x -> "x" ^ string_of_int x
       | Zero tp -> "0{" ^ Type.string_of_t tp ^ "}"
+      | ZeroA (tp, u) -> "0{" ^ Type.string_of_t tp ^ " / " ^ UsageContext.string_of_t u ^ "}"
+      | Annot (e, tp) -> "(" ^ pretty_string_of_t e ^ " : " ^ Type.string_of_t tp ^ ")"
       | Plus (e1, e2) -> pretty_string_of_t e1 ^ " + " ^ pretty_string_of_t e2
       | Const c -> string_of_int c
       | Scale (e1, e2) -> pretty_string_of_t e1 ^ " * " ^ pretty_string_of_t e2
@@ -88,6 +103,8 @@ module Expr = struct
       match e with
       | Var x -> if x = from then Var to_ else Var x
       | Zero tp -> Zero tp
+      | ZeroA (tp,u) -> ZeroA (tp,UsageContext.rename from to_ u)
+      | Annot (e, tp) -> Annot(rename_var from to_ e, tp)
       | Const c -> Const c
       | Plus (e1, e2) -> Plus (rename_var from to_ e1, rename_var from to_ e2)
       | Scale (e1, e2) -> Scale (rename_var from to_ e1, rename_var from to_ e2)
@@ -101,10 +118,13 @@ module Expr = struct
           else Lambda (x, tp, rename_var from to_ body)
       | Apply (e1, e2) -> Apply (rename_var from to_ e1, rename_var from to_ e2)
 
+    (* Apply the function f to all constants in e *)
     let rec map (f : int -> int) (e : t) : t =
       match e with
       | Var x -> Var x
       | Zero tp -> Zero tp
+      | ZeroA (tp, u) -> ZeroA (tp, u)
+      | Annot (e', tp) -> Annot(map f e', tp)
       | Plus (e1, e2) ->
         Plus (map f e1, map f e2)
       | Const c -> Const (f c)
@@ -119,10 +139,13 @@ module Expr = struct
       | Apply (e1,e2) -> 
         Apply (map f e1, map f e2)
 
+    (* Update env so its next fresh variable is not in e *)
     let rec update_env env e =
       match e with
       | Var x -> VariableEnvironment.update x env
       | Zero _ -> ()
+      | ZeroA _ -> ()
+      | Annot (e', _) -> update_env env e'
       | Plus (e1, e2) -> update_env env e1; update_env env e2
       | Const _ -> ()
       | Scale (e1, e2) -> update_env env e1; update_env env e2
@@ -139,10 +162,19 @@ module Expr = struct
       | Apply (e1, e2) -> update_env env e1; update_env env e2
 
     (* alpha equivalence *)
+    (* Take as input two expressions. Returns true iff they are syntactically equal (including free variables, possibly not including type or usage annotations) up to renaming their bound variables. To check if two binders are equal e.g. (lambda x1.e1) and (lambda x2.e2), the function will create a fresh variable y from env and rename both x1 and x2 to y.
+      Requires: fresh env will always return a variable that does not occur in either e1 or e2
+    *)
     let rec alpha_equiv' (env : VariableEnvironment.t) e1 e2 =
       match e1, e2 with
       | Var x1, Var x2 -> x1 = x2
       | Zero tp1, Zero tp2 -> tp1 = tp2
+      | Zero tp1, ZeroA (tp2, _) -> tp1 = tp2
+      | ZeroA (tp1, _), Zero tp2 -> tp1 = tp2
+      | ZeroA (tp1, u1), ZeroA (tp2, u2) -> tp1 = tp2 && UsageContext.equal u1 u2
+      | Annot(e1', tp1), Annot(e2', tp2) -> tp1 = tp2 && alpha_equiv' env e1' e2'
+      | Annot(e1', _), _ -> alpha_equiv' env e1' e2
+      | _, Annot(e2', _) -> alpha_equiv' env e1 e2'
       | Plus (e11,e12), Plus(e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
       | Const v1, Const v2 -> v1 = v2
       | Scale (e11,e12), Scale (e21,e22) -> alpha_equiv' env e11 e21 && alpha_equiv' env e12 e22
@@ -163,6 +195,7 @@ module Expr = struct
       update_env env e1;
       update_env env e2;
       alpha_equiv' env e1 e2
+
   end
 
 module HOAS = struct
@@ -273,6 +306,8 @@ module Eval (Zd : Z_SIG) = struct
     match e with
     | Var x -> (try VariableMap.find x ctx with Not_found -> failwith "Unbound variable")
     | Zero tp -> vzero tp
+    | ZeroA (tp, _) -> vzero tp
+    | Annot (e', _) -> eval ctx e'
     | Const c -> Val.Const (Zd.normalize c)
     | Plus (e1, e2) -> vplus (eval ctx e1) (eval ctx e2)
     | Scale (e1, e2) ->
@@ -316,112 +351,173 @@ end
 
 module Typing = struct
   type typing_context = Type.t VariableMap.t
+  type usage_context = UsageContext.M.t
 
-  module Usage = struct
-    type t = Z | L | Inf | Unknown
-
-    let (+) (u1 : t) (u2 : t) : t =
-      match u1, u2 with
-      | Z, u | u, Z -> u
-      | Unknown, u | u, Unknown -> u
-      | L, L | Inf, _ | _, Inf -> Inf
-
-    let unify u1 u2 : t option =
-      match u1, u2 with
-      | Unknown, u | u, Unknown -> Some u
-      | L, L | Z, Z | Inf, Inf -> Some u1
-      | _, _ -> None
-
-  end
-  module UsageContext = struct
-
-    type t = Usage.t VariableMap.t
-
-    let (+) = VariableMap.merge (fun _ o1 o2 ->
-      match o1, o2 with
-      | Some u1, Some u2 -> Some Usage.(u1 + u2)
-      | _, _ -> None
-      )
-
-    let unify = VariableMap.merge (fun _ o1 o2 ->
-      match o1, o2 with
-      | Some u1, Some u2 -> Usage.unify u1 u2
-      | _, _ -> None
-      )
-
-    let is_linear_in x ctx =
-      match VariableMap.find_opt x ctx with
-      | Some Usage.L | Some Usage.Unknown -> true
-      | _ -> false
-
-  end
 
   exception TypeError of string
+  let terr msg = raise (TypeError msg)
+  exception InferenceError
 
-  let type_of_var gamma (x : Variable.t) : Type.t * UsageContext.t =
+  let type_of_var gamma (x : Variable.t) : Type.t =
     match VariableMap.find_opt x gamma with
     | None ->
       let msg = "Variable " ^ string_of_int x ^ " not found in the typing context" in
       raise (TypeError msg)
-    | Some tp -> (tp, VariableMap.singleton x Usage.L)
+    | Some tp -> tp
 
-  let rec type_of' (gamma : typing_context)
-                  (e : Expr.t) : Type.t * UsageContext.t =
+  let assert_available x u (expectation : bool) =
+    let b = UsageContext.mem x u in
+    if b = expectation then ()
+    else if expectation then terr @@ "I expected " ^ string_of_int x ^ " to appear in the usage context " ^ UsageContext.string_of_t u ^ "\n"
+    else terr @@ "I did not expect " ^ string_of_int x ^ " to appear in the usage context " ^ UsageContext.string_of_t u ^ "\n"
+
+  let assert_type (expected : Type.t option) (actual : Type.t) =
+    match expected with
+    | Some expected0 -> if expected0 = actual then ()
+                        else terr @@ "Expected type: " ^ Type.string_of_t expected0
+                                   ^ "\nActual type: " ^ Type.string_of_t actual
+    | None -> ()
+
+  let assert_usage (expected : usage_context option) (actual : usage_context) =
+    match expected with
+    | Some expected0 -> if UsageContext.equal expected0 actual then ()
+                        else terr @@ "Expected usage context: " ^ UsageContext.string_of_t expected0
+                                   ^ "\nActual usage context: " ^ UsageContext.string_of_t actual
+    | None -> ()
+
+  let assert_usage_subset u1 u2 =
+    if UsageContext.subset u1 u2 then ()
+    else terr @@ "Expected usage context " ^ UsageContext.string_of_t u1
+               ^ "\nto be a subset of " ^ UsageContext.string_of_t u2
+
+  let check_var gamma u x (tau0 : Type.t option) (u0 : usage_context option) =
+    let tau' = type_of_var gamma x in
+    let u' = UsageContext.remove x u in
+    assert_available x u true;
+    assert_type tau0 tau';
+    assert_usage u0 u';
+    (tau',u')
+
+  let check_sum (tau0 : Type.t option) : (Type.t option) * (Type.t option) =
+    match tau0 with
+    | None -> (None, None)
+    | Some (Type.Sum (tau1, tau2)) -> (Some tau1, Some tau2)
+    | Some tau -> terr @@ "Expected a sum type, received: " ^ Type.string_of_t tau
+  let check_arrow (tau0 : Type.t option) : (Type.t option) * (Type.t option) =
+    match tau0 with
+    | None -> (None, None)
+    | Some (Type.Arrow (tau1, tau2)) -> (Some tau1, Some tau2)
+    | Some tau -> terr @@ "Expected an arrow type, received: " ^ Type.string_of_t tau
+
+  let rec typecheck0 gamma u e tau0 u0 =
     match e with
-    | Var x -> type_of_var gamma x
-    | Zero tp -> (tp, VariableMap.map (fun _ -> Usage.Unknown) gamma)
-    | Plus (e1, e2) ->
-      let (tp1, usage1) = type_of' gamma e1 in
-      let (tp2, usage2) = type_of' gamma e2 in
-      if not(tp1 = tp2)
-      then raise (TypeError "Plus: expressions must have the same type")
-      else (tp1, UsageContext.unify usage1 usage2)
-    | Const _ -> (Unit, VariableMap.map (fun _ -> Usage.Z) gamma)
-    | Scale (e1, e2) -> 
-      let (tp1, usage1) = type_of' gamma e1 in
-      let (tp2, usage2) = type_of' gamma e2 in
-      (match tp1 with
-       | Unit -> (tp2, UsageContext.(usage1 + usage2))
-       | _ -> raise (TypeError "Scale: first argument must have type Unit")
+    | Expr.Var x -> check_var gamma u x tau0 u0
+    | Annot (e',tau) ->
+      assert_type tau0 tau;
+      typecheck0 gamma u e' (Some tau) u0
+    | Zero tau ->
+      assert_type tau0 tau;
+      (match u0 with
+      | Some u' -> (tau, u')
+      | None -> raise InferenceError
       )
-    | Pair (e1, e2) -> 
-      let (tp1, usage1) = type_of' gamma e1 in
-      let (tp2, usage2) = type_of' gamma e2 in
-      (Sum (tp1, tp2), UsageContext.unify usage1 usage2)
+    | ZeroA (tau, u') ->
+      assert_type tau0 tau;
+      assert_usage u0 u';
+      assert_usage_subset u' u;
+      (tau, u')
 
-    | Case (e0, x1, e1, x2, e2) ->
-      (match type_of' gamma e0 with
-       | (Sum(tp1,tp2), usage') ->
-         let gamma1 = VariableMap.add x1 tp1 gamma in
-         let gamma2 = VariableMap.add x2 tp2 gamma in
-         let (tp1', usage1) = type_of' gamma1 e1 in
-         let (tp2', usage2) = type_of' gamma2 e2 in
-         if not (tp1' = tp2')
-         then raise (TypeError "Case: branches must have the same type")
-         else let usage'' = UsageContext.(usage' + unify usage1 usage2) in
-              (tp1', usage'')
-       | _ -> raise (TypeError "Case: first argument must have Sum type")
-      )
-    | Lambda (x, tp, e') -> 
-      let gamma' = VariableMap.add x tp gamma in
-      let (tp', usage') = type_of' gamma' e' in
-      (* check that x is used linearly in e' *)
-      if not (UsageContext.is_linear_in x usage')
-      then raise (TypeError "Lambda: variable not used linearly in body")
-      else let usage0 = VariableMap.remove x usage' in
-           (Arrow (tp, tp'), usage0)
-    | Apply (e1, e2) ->
-      (match type_of' gamma e1, type_of' gamma e2 with
-       | (Arrow (tp,tp'), usage1), (tp0, usage2)
-        when tp = tp0 -> (tp', UsageContext.(usage1 + usage2))
-       | _, _ -> raise (TypeError "Apply: function and argument types do not match")
+    | Const _ ->
+      assert_type tau0 Type.Unit;
+      assert_usage u0 u;
+      (Type.Unit, u)
+
+
+    | Scale (e1, e2) -> (
+      try
+        let (_, u') = typecheck0 gamma u e1 (Some Type.Unit) None in
+        typecheck0 gamma u' e2 tau0 u0
+      with
+      | InferenceError ->
+        let (tau', u') = typecheck0 gamma u e2 tau0 None in
+        let (_, u'') = typecheck0 gamma u' e1 (Some Type.Unit) u0 in
+        (tau', u'')
+    )
+
+    | Plus (e1, e2) -> (
+      try
+        let (tau,u') = typecheck0 gamma u e1 tau0 u0 in
+        typecheck0 gamma u' e2 (Some tau) (Some u')
+      with
+      | InferenceError ->
+        let (tau,u') = typecheck0 gamma u e2 tau0 u0 in
+        typecheck0 gamma u' e1 (Some tau) (Some u')
       )
 
-    let type_of (gamma : typing_context) (e : Expr.t) : Type.t =
-      let (tp, usage) = type_of' gamma e in
-      let success_criteria x _ = UsageContext.is_linear_in x usage
-      in 
-      if VariableMap.for_all success_criteria gamma
-      then tp
-      else raise (TypeError "Non-linear use of variables")
+    | Pair (e1, e2) ->
+      let (tau10, tau20) = check_sum tau0 in
+      (try
+        let (tau1, u') = typecheck0 gamma u e1 tau10 u0 in
+        let (tau2, _) = typecheck0 gamma u e2 tau20 (Some u') in
+        (Type.Sum (tau1,tau2), u')
+      with
+      | InferenceError ->
+        let (tau2, u') = typecheck0 gamma u e2 tau20 u0 in
+        let (tau1, _) = typecheck0 gamma u e1 tau10 (Some u') in
+        (Type.Sum (tau1,tau2), u') 
+      )
+
+    | Case (a, x1, a1, x2, a2) ->
+      let (tau, u') = typecheck0 gamma u a None None in
+      let (Some tau1, Some tau2) = check_sum (Some tau) [@@warning "-partial-match"] in
+      let gamma1 = VariableMap.add x1 tau1 gamma in
+      let gamma2 = VariableMap.add x2 tau2 gamma in
+      let u1 = UsageContext.add x1 u' in
+      let u2 = UsageContext.add x2 u' in
+      
+      let (tau',u'') =
+        (try
+          let (tau', u'') = typecheck0 gamma1 u1 a1 tau0 u0 in
+          typecheck0 gamma2 u2 a2 (Some tau') (Some u'')
+        with
+        | InferenceError ->
+          let (tau', u'') = typecheck0 gamma2 u2 a2 tau0 u0 in
+          typecheck0 gamma1 u1 a1 (Some tau') (Some u'')
+        ) in
+
+      assert_available x1 u'' false;
+      assert_available x2 u'' false;
+      (tau', u'')
+
+    | Lambda (x, tau1, e') ->
+      let (tau10, tau20) = check_arrow tau0 in
+      assert_type tau10 tau1;
+      let gamma' = VariableMap.add x tau1 gamma in
+      let u' = UsageContext.add x u in
+      let (tau2, u'') = typecheck0 gamma' u' e' tau20 u0 in
+      assert_available x u'' false;
+      (Type.Arrow (tau1, tau2), u'')
+
+    | Apply (e1, e2) -> (
+      try
+        let (tau, u') = typecheck0 gamma u e1 None None in
+        let (Some tau1, Some tau2) = check_arrow (Some tau) [@@warning "-partial-match"] in
+        let (_, u'') = typecheck0 gamma u' e2 (Some tau1) u0 in
+        (Type.Arrow(tau1, tau2), u'')
+      with
+      | InferenceError ->
+        let (tau1, u') = typecheck0 gamma u e2 None None in
+        let tau0' = Option.map (fun tau2 -> Type.Arrow(tau1,tau2)) tau0 in
+        let (tau', u'') = typecheck0 gamma u' e1 tau0' u0 in
+        let (Some tau1, Some tau2) = check_arrow (Some tau') [@@warning "-partial-match"] in
+        (Type.Arrow (tau1, tau2), u'')
+    )
+
+  let typecheck e = 
+    let (tau,u) = typecheck0 VariableMap.empty UsageContext.empty e None None in
+    if UsageContext.is_empty(u) then tau
+    else 
+      let msg = "Unused variables: " ^ UsageContext.string_of_t u in
+      raise (TypeError msg)
+  
 end
