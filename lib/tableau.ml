@@ -62,7 +62,7 @@ type tab =
 (* example of one qubit pauli tab for hadamard*)
 
 let had : tab = 
-      { stabilizers = [Interface.parse "X"]
+      { stabalizers = [Interface.parse "X"]
       ; destabilizers = [Interface.parse "Z"]}
     
 
