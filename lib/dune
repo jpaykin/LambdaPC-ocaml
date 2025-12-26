@@ -8,4 +8,5 @@
 (library
  (name pCLib)
  (modules :standard)
+ (libraries smtml)
 )
