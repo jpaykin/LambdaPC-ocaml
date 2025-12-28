@@ -166,11 +166,34 @@ end
 module SymplecticForm = struct
   open LambdaC.HOAS
 
-  exception TODO
-  let psi_of (_e : Expr.t) : LambdaC.Expr.t = raise TODO
+
 
   let ccaseP e e1 e2 =
     case e (fun x -> x * e1) (fun z -> z * e2)
+
+  exception TODO
+  (* Assumption: the LambdaC.HOAS environment is already aware of all the variables (free or bound) in t *)
+  let rec psi_of (t : Expr.t) : LambdaC.Expr.t =
+    match t with
+    | Var x -> var x
+    | Let(_t1,_x,_t2) -> raise TODO
+    | LExpr a -> a
+    | Phase(_,t') -> psi_of t'
+    | Prod(t1,t2) -> psi_of t1 + psi_of t2
+    | Pow(t',r) -> const r * psi_of t'
+    | CasePauli(t',tx,tz) ->
+      ccaseP (psi_of t')
+        (psi_of tx)
+        (psi_of tz)
+    | In1 (t1,tp2) -> LambdaC.Expr.Pair (psi_of t1, zero @@ Type.ltype_of_t tp2)
+    | In2 (tp1,t2) -> LambdaC.Expr.Pair (zero @@ Type.ltype_of_t tp1, psi_of t2)
+    | CasePTensor(t',x1,t1,x2,t2) ->
+      LambdaC.Expr.Case(psi_of t',
+        x1, psi_of t1,
+        x2, psi_of t2)
+    | Apply (Lam(x,tp,t1),t2) -> LambdaC.Expr.Lambda(x, Type.ltype_of_t tp,psi_of t1) @ psi_of t2
+    | Force (Suspend t') -> psi_of t'
+
   let omega1 a1 a2 =
     ccaseP a1
       (ccaseP a2 

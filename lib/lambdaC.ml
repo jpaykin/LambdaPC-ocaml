@@ -218,6 +218,7 @@ module HOAS = struct
   let lambda tp (f : Expr.t -> Expr.t) =
       let x = fresh() in
       Expr.Lambda (x, tp, f (var x))
+
   let (@) e1 e2 = Expr.Apply (e1, e2)
 
 end
