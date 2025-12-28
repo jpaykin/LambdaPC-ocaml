@@ -45,15 +45,19 @@ module HOAS : sig
   val var_env : VariableEnvironment.t ref
   val set_variable_environment : VariableEnvironment.t -> unit
   val fresh : unit -> Variable.t
+  val update_env : Expr.t -> unit
 
   val var : Variable.t -> Expr.t
   val zero : Type.t -> Expr.t
   val (+) : Expr.t -> Expr.t -> Expr.t
   val const : int -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
-  val case : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
-  val lambda : Type.t -> (Variable.t -> Expr.t) -> Expr.t
-  val (@) : Expr.t -> Expr.t -> Expr.t    
+  val case : Expr.t -> (Expr.t -> Expr.t) -> (Expr.t -> Expr.t) -> Expr.t
+  val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.t
+  val (@) : Expr.t -> Expr.t -> Expr.t
+
+
+  (* Helper functions for performing the symplectic form *)
 end
 
 module Val : sig

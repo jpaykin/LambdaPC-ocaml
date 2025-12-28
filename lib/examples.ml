@@ -10,11 +10,11 @@ let pauliI : LambdaPC.Expr.t = pauli 0 0
 
 let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
 
-let id tp = lambda tp (fun q -> var q)
-let hadamard = lambda Pauli (fun q -> caseofP (var q) pauliZ pauliX)
-let qft = lambda Pauli (fun q -> caseofP (var q) pauliZ (pow pauliX (-1)))
+let id tp = lambda tp (fun q -> q)
+let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
+let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (-1)))
 let phasegate = lambda Pauli (fun q ->
-    caseofP (var q)
+    caseofP q
       (*X->*) pauliY
       (*Z->*) pauliZ
   )
@@ -38,13 +38,13 @@ let rec in_n_i (n : int) (i : int) (t : LambdaPC.Expr.t) : LambdaPC.Expr.t =
   case t of {in_i q -> f i q}
 *)
 let rec match_in_i (n : int) (t : LambdaPC.Expr.t)
-                   (f : int -> LambdaPC.Variable.t -> LambdaPC.Expr.t)
+                   (f : int -> LambdaPC.Expr.t -> LambdaPC.Expr.t)
       : LambdaPC.Expr.t =
     assert (n > 0);
     let inc_f = fun j -> f (j + 1) in
     if n = 1
     then letin t (f 0)
-    else caseof t (fun q0 -> f 0 q0) (fun q' -> match_in_i (n-1) (var q') inc_f)
+    else caseof t (fun q0 -> f 0 q0) (fun q' -> match_in_i (n-1) q' inc_f)
 
 
 let ptensor tp1 tp2 t1 t2 =
@@ -56,18 +56,18 @@ let pauliNegX2Y3 = phase (const 1) (
 let pauliXY = in1 pauliX Pauli * in2 Pauli pauliY
 
 let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
-    caseof (var q)
-      (fun q1 -> in2 tp2 (var q1))
-      (fun q2 -> in1 (var q2) tp1)
+    caseof q
+      (fun q1 -> in2 tp2 q1)
+      (fun q2 -> in1 q2 tp1)
   )
 
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
-    caseof (var q)
-      (fun q1 -> caseofP (var q1) 
+    caseof q
+      (fun q1 -> caseofP q1
                     (*Z->*) (in_n_i 2 0 pauliZ)
                     (*X->*) (in_n_i 2 0 pauliX * in_n_i 2 1 pauliX)
         )
-      (fun q2 -> caseofP (var q2)
+      (fun q2 -> caseofP q2
                     (*Z->*) (in1 pauliZ Pauli * in2 Pauli pauliZ)
                     (*X->*) (in2 Pauli pauliX)
         )

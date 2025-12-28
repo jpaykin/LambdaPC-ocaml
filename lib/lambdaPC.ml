@@ -140,7 +140,7 @@ module HOAS = struct
   let var (x : Variable.t) = Expr.Var x
   let letin e f =
     let x = fresh() in
-    Expr.Let (e, x, f x)
+    Expr.Let (e, x, f (var x))
   let vec a = Expr.LExpr a
   let phase a e = Expr.Phase(a, e)
   let ( * ) e1 e2 = Expr.Prod(e1,e2)
@@ -151,15 +151,51 @@ module HOAS = struct
   let caseof e b1 b2 =
     let x1 = fresh() in
     let x2 = fresh() in
-    Expr.CasePTensor(e, x1, b1 x1, x2, b2 x2)
+    Expr.CasePTensor(e, x1, b1 (var x1), x2, b2 (var x2))
 
-  let lambda tp (f : Variable.t -> Expr.t) =
+  let lambda tp (f : Expr.t -> Expr.t) =
       let x = fresh() in
-      Expr.Lam (x, tp, f x)
+      Expr.Lam (x, tp, f (var x))
   let (@) e1 e2 = Expr.Apply (e1, e2)
 
   let suspend e = Expr.Suspend e
   let force e = Expr.Force e
+
+end
+
+module SymplecticForm = struct
+  open LambdaC.HOAS
+
+  exception TODO
+  let psi_of (_e : Expr.t) : LambdaC.Expr.t = raise TODO
+
+  let ccaseP e e1 e2 =
+    case e (fun x -> x * e1) (fun z -> z * e2)
+  let omega1 a1 a2 =
+    ccaseP a1
+      (ccaseP a2 
+        (*t1=[1,0],t2=[1,0]*) (const 0)
+        (*t1=[1,0],t2=[0,1]*) (const 1)
+      )
+      (ccaseP a2 
+        (*t1=[0,1],t2=[1,0]*) (const 1)
+        (*t1=[0,1],t2=[0,1]*) (const 0)
+      )
+  let rec omega (tp : Type.t) (a1 : LambdaC.Expr.t) (a2 : LambdaC.Expr.t) : LambdaC.Expr.t =
+    match tp with
+    | Type.Pauli -> omega1 a1 a2
+    | Type.PTensor (tp1,tp2) ->
+        case a1
+          (fun a11 ->
+            case a2
+              (fun a21 -> omega tp1 a11 a21)
+              (fun _ -> zero Unit)
+          )
+          (fun a12 ->
+            case a2
+              (fun _ -> zero Unit)
+              (fun a22 -> omega tp2 a12 a22)
+          )
 end
 
 (**************)

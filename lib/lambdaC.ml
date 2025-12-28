@@ -203,7 +203,9 @@ module HOAS = struct
   let set_variable_environment (env : VariableEnvironment.t) = var_env := env
   let fresh () : Variable.t = VariableEnvironment.fresh !var_env
 
-   let var x = Expr.Var x
+  let update_env (a : Expr.t) = Expr.update_env !var_env a
+
+  let var x = Expr.Var x
   let zero tp = Expr.Zero tp
   let (+) e1 e2 = Expr.Plus (e1,e2)
   let const x = Expr.Const x
@@ -211,13 +213,13 @@ module HOAS = struct
   let case e fx fz =
       let x = fresh() in
       let z = fresh() in
-      Expr.Case(e, x, fx x, z, fz z)
+      Expr.Case(e, x, fx (var x), z, fz (var z))
   
-  let lambda tp (f : Variable.t -> Expr.t) =
+  let lambda tp (f : Expr.t -> Expr.t) =
       let x = fresh() in
-      Expr.Lambda (x, tp, f x)
+      Expr.Lambda (x, tp, f (var x))
   let (@) e1 e2 = Expr.Apply (e1, e2)
-    
+
 end
 
 module Val = struct

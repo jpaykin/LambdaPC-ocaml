@@ -43,7 +43,7 @@ module HOAS : sig
   val fresh : unit -> Variable.t
 
   val var : Variable.t -> Expr.t
-  val letin : Expr.t -> (Variable.t -> Expr.t) -> Expr.t
+  val letin : Expr.t -> (Expr.t -> Expr.t) -> Expr.t
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
@@ -51,11 +51,17 @@ module HOAS : sig
   val caseofP : Expr.t -> Expr.t -> Expr.t -> Expr.t
   val in1 : Expr.t -> Type.t -> Expr.t
   val in2 : Type.t -> Expr.t -> Expr.t
-  val caseof : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
-  val lambda : Type.t -> (Variable.t -> Expr.t) -> Expr.pc
+  val caseof : Expr.t -> (Expr.t -> Expr.t) -> (Expr.t -> Expr.t) -> Expr.t
+  val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.pc
   val (@) : Expr.pc -> Expr.t -> Expr.t
   val suspend : Expr.t -> Expr.p
   val force : Expr.p -> Expr.t
+end
+
+module SymplecticForm : sig
+  val psi_of : Expr.t -> LambdaC.Expr.t
+  val ccaseP : LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t
+  val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
 
 module PhaseEnvironment : (Zd : Scalars.Z_SIG) ->
