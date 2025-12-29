@@ -105,8 +105,13 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   let rec smtml_of_expr (ctx : Smtml.Symbol.t VariableMap.t) (a : Expr.t) tp =
     match a with
     | Var x -> var ctx x
+    | Let (Annot(a1, tp1),x,a2) ->
+
+        let e1 = smtml_of_expr ctx a1 tp1 in
+        let s = make_symbol tp1 x in
+        let e2 = smtml_of_expr (VariableMap.add x s ctx) a2 tp in
+        Smtml.Expr.let_in [Smtml.Expr.symbol s; e1] e2
     | Zero tp -> zero tp
-    | ZeroA (tp,_) -> zero tp
     | Annot (a, _) -> smtml_of_expr ctx a tp
     | Plus (e1, e2) -> plus tp (smtml_of_expr ctx e1 tp) (smtml_of_expr ctx e2 tp)
     | Const r -> const r

@@ -20,8 +20,8 @@ end
 module Expr : sig
   type t =
       Var of Variable.t
+    | Let of t * Variable.t * t
     | Zero of Type.t
-    | ZeroA of Type.t * UsageContext.t
     | Annot of t * Type.t
     | Plus of t * t
     | Const of int
@@ -55,6 +55,7 @@ module HOAS : sig
   val case : Expr.t -> (Expr.t -> Expr.t) -> (Expr.t -> Expr.t) -> Expr.t
   val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.t
   val (@) : Expr.t -> Expr.t -> Expr.t
+  val pair : Expr.t -> Expr.t -> Expr.t
 
 
   (* Helper functions for performing the symplectic form *)
@@ -86,6 +87,8 @@ module Eval : functor (Zd : Z_SIG) -> sig
 
 end
 
+(*
+
 module Typing : sig
   type typing_context
   type usage_context
@@ -93,7 +96,7 @@ module Typing : sig
   exception InferenceError
   val typecheck : Expr.t -> Type.t
 end
-
+*)
 
 (* module Expr_Functor (A : Z_SIG) (B : Z_SIG) : sig
   val map_expr : (A.t -> B.t) -> Expr.t -> Expr.t

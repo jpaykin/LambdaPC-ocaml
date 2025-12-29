@@ -35,21 +35,23 @@ module VariableEnvironment = struct
     env := max (x+1) !env
 end 
 
+
 module UsageContext = struct
   module M = Set.Make(Variable)
   include M
+  (*
   let string_of_t u = List.fold_left (fun str x -> str ^ string_of_int x) "{" (to_list u)  ^ "}"
 
   let rename from to_ u = M.map (fun z -> if z = from then to_ else z) u
+  *)
 end
-
 
 module Expr = struct
 
   type t =
       Var of Variable.t
+    | Let of t * Variable.t * t
     | Zero of Type.t
-    | ZeroA of Type.t * UsageContext.t
     | Annot of t * Type.t
     | Plus of t * t
     | Const of int
@@ -62,8 +64,8 @@ module Expr = struct
     let rec string_of_t e =
       match e with
       | Var x -> "Var(" ^ string_of_int x ^ ")"
+      | Let (a1,x,a2) -> "Let(" ^ string_of_t a1 ^ ", " ^ string_of_int x ^ ", " ^ string_of_t a2 ^ ")"
       | Zero tp -> "Zero(" ^ Type.string_of_t tp ^ ")"
-      | ZeroA (tp, u) -> "Zero( " ^ Type.string_of_t tp ^ ", " ^ UsageContext.string_of_t u ^ ")"
       | Annot (e, tp) -> "Annot( " ^ string_of_t e ^ ", " ^ Type.string_of_t tp ^ ")"
       | Plus (e1, e2) -> "Plus(" ^ string_of_t e1 ^ ", " ^ string_of_t e2 ^ ")"
       | Const c -> "Const(" ^ string_of_int c ^ ")"
@@ -79,8 +81,8 @@ module Expr = struct
     let rec pretty_string_of_t e =
       match e with
       | Var x -> "x" ^ string_of_int x
+      | Let (a1,x,a2) -> "let x" ^ string_of_int x ^ " = " ^ pretty_string_of_t a1 ^ " in " ^ pretty_string_of_t a2
       | Zero tp -> "0{" ^ Type.string_of_t tp ^ "}"
-      | ZeroA (tp, u) -> "0{" ^ Type.string_of_t tp ^ " / " ^ UsageContext.string_of_t u ^ "}"
       | Annot (e, tp) -> "(" ^ pretty_string_of_t e ^ " : " ^ Type.string_of_t tp ^ ")"
       | Plus (e1, e2) -> pretty_string_of_t e1 ^ " + " ^ pretty_string_of_t e2
       | Const c -> string_of_int c
@@ -102,8 +104,11 @@ module Expr = struct
     let rec rename_var (from : Variable.t) (to_ : Variable.t) (e : t) : t =
       match e with
       | Var x -> if x = from then Var to_ else Var x
+      | Let (a1,x,a2) ->
+        Let(rename_var from to_ a1,
+            x,
+            if x = from then a2 else rename_var from to_ a2)
       | Zero tp -> Zero tp
-      | ZeroA (tp,u) -> ZeroA (tp,UsageContext.rename from to_ u)
       | Annot (e, tp) -> Annot(rename_var from to_ e, tp)
       | Const c -> Const c
       | Plus (e1, e2) -> Plus (rename_var from to_ e1, rename_var from to_ e2)
@@ -122,8 +127,8 @@ module Expr = struct
     let rec map (f : int -> int) (e : t) : t =
       match e with
       | Var x -> Var x
+      | Let(a1,x,a2) -> Let (map f a1, x, map f a2)
       | Zero tp -> Zero tp
-      | ZeroA (tp, u) -> ZeroA (tp, u)
       | Annot (e', tp) -> Annot(map f e', tp)
       | Plus (e1, e2) ->
         Plus (map f e1, map f e2)
@@ -143,8 +148,11 @@ module Expr = struct
     let rec update_env env e =
       match e with
       | Var x -> VariableEnvironment.update x env
+      | Let(a1,x,a2) ->
+        update_env env a1;
+        VariableEnvironment.update x env;
+        update_env env a2
       | Zero _ -> ()
-      | ZeroA _ -> ()
       | Annot (e', _) -> update_env env e'
       | Plus (e1, e2) -> update_env env e1; update_env env e2
       | Const _ -> ()
@@ -168,10 +176,11 @@ module Expr = struct
     let rec alpha_equiv' (env : VariableEnvironment.t) e1 e2 =
       match e1, e2 with
       | Var x1, Var x2 -> x1 = x2
+      | Let(a1,x1,a1'), Let(a2,x2,a2') ->
+        let x = VariableEnvironment.fresh env in
+        alpha_equiv' env a1 a2
+          && alpha_equiv' env (rename_var x1 x a1') (rename_var x2 x a2')
       | Zero tp1, Zero tp2 -> tp1 = tp2
-      | Zero tp1, ZeroA (tp2, _) -> tp1 = tp2
-      | ZeroA (tp1, _), Zero tp2 -> tp1 = tp2
-      | ZeroA (tp1, u1), ZeroA (tp2, u2) -> tp1 = tp2 && UsageContext.equal u1 u2
       | Annot(e1', tp1), Annot(e2', tp2) -> tp1 = tp2 && alpha_equiv' env e1' e2'
       | Annot(e1', _), _ -> alpha_equiv' env e1' e2
       | _, Annot(e2', _) -> alpha_equiv' env e1 e2'
@@ -220,6 +229,7 @@ module HOAS = struct
       Expr.Lambda (x, tp, f (var x))
 
   let (@) e1 e2 = Expr.Apply (e1, e2)
+  let pair e1 e2 = Expr.Pair (e1,e2)
 
 end
 
@@ -308,8 +318,11 @@ module Eval (Zd : Z_SIG) = struct
   let rec eval (ctx : Val.t VariableMap.t) (e : Expr.t) : Val.t =
     match e with
     | Var x -> (try VariableMap.find x ctx with Not_found -> failwith "Unbound variable")
+    | Let(a1,x,a2) ->
+      let v = eval ctx a1 in
+      let ctx' = VariableMap.add x v ctx in
+      eval ctx' a2
     | Zero tp -> vzero tp
-    | ZeroA (tp, _) -> vzero tp
     | Annot (e', _) -> eval ctx e'
     | Const c -> Val.Const (Zd.normalize c)
     | Plus (e1, e2) -> vplus (eval ctx e1) (eval ctx e2)
@@ -352,6 +365,7 @@ module Eval (Zd : Z_SIG) = struct
 
 end
 
+(*
 module Typing = struct
   type typing_context = Type.t VariableMap.t
   type usage_context = UsageContext.M.t
@@ -368,6 +382,7 @@ module Typing = struct
       raise (TypeError msg)
     | Some tp -> tp
 
+  (*
   let assert_available x u (expectation : bool) =
     let b = UsageContext.mem x u in
     if b = expectation then ()
@@ -522,5 +537,7 @@ module Typing = struct
     else 
       let msg = "Unused variables: " ^ UsageContext.string_of_t u in
       raise (TypeError msg)
-  
+  *)
 end
+
+*)
