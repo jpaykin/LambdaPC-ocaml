@@ -414,14 +414,17 @@ module Typing = struct
   type usage_relation = UsageContext.M.t -> UsageContext.M.t -> bool
 
 
-  exception TypeError of string
-  let terr msg = raise (TypeError msg)
+  exception TypeError
+  let terr msg =
+    print_string "TYPE ERROR";
+    print_string msg;
+    raise TypeError
 
   let type_of_var gamma (x : Variable.t) : Type.t =
     match VariableMap.find_opt x gamma with
     | None ->
       let msg = "Variable " ^ string_of_int x ^ " not found in the typing context" in
-      raise (TypeError msg)
+      terr msg
     | Some tp -> tp
 
 
@@ -430,6 +433,12 @@ module Typing = struct
     expr : Expr.t;
     tp : Type.t;
   }
+  let string_of_info info =
+    "Type Information:\n"
+    ^ "\tAnnotated Expression: " ^ Expr.pretty_string_of_t info.expr ^"\n"
+    ^ "\tType: " ^ Type.string_of_t info.tp ^"\n"
+  let pp_info info = print_string (string_of_info info)
+
 
   let assert_arrow_type (alpha : Type.t) : Type.t * Type.t =
     match alpha with
@@ -447,7 +456,7 @@ module Typing = struct
                                    ^ "\nActual type: " ^ Type.string_of_t actual
 
 
-  let rec typecheck (ctx : typing_context) (a : Expr.t) : type_information = 
+  let rec typecheck' (ctx : typing_context) (a : Expr.t) : type_information = 
     match a with
     | Var x ->
       {
@@ -459,9 +468,9 @@ module Typing = struct
       }
 
     | Let (a1,x,a2) ->
-      let info1 = typecheck ctx a1 in
+      let info1 = typecheck' ctx a1 in
       let ctx' = VariableMap.add x info1.tp ctx in
-      let info2 = typecheck ctx' a2 in
+      let info2 = typecheck' ctx' a2 in
       {
         expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
         tp = info2.tp;
@@ -482,7 +491,7 @@ module Typing = struct
       }
 
     | Annot (a',alpha) ->
-      let info' = typecheck ctx a' in
+      let info' = typecheck' ctx a' in
       assert_type alpha info'.tp;
       {
         expr = Annot(info'.expr, alpha);
@@ -491,8 +500,8 @@ module Typing = struct
       }
 
     | Plus (a1,a2) ->
-      let info1 = typecheck ctx a1 in
-      let info2 = typecheck ctx a2 in
+      let info1 = typecheck' ctx a1 in
+      let info2 = typecheck' ctx a2 in
       assert_type info1.tp info2.tp;
       {
         expr = Plus (info1.expr, info2.expr);
@@ -509,9 +518,9 @@ module Typing = struct
       }
 
     | Scale (a1,a2) ->
-      let info1 = typecheck ctx a1 in
+      let info1 = typecheck' ctx a1 in
       assert_type Unit info1.tp;
-      let info2 = typecheck ctx a2 in
+      let info2 = typecheck' ctx a2 in
       {
         expr = Scale(info1.expr, info2.expr);
         tp = info2.tp;
@@ -522,8 +531,8 @@ module Typing = struct
       }
 
     | Pair (a1,a2) ->
-      let info1 = typecheck ctx a1 in
-      let info2 = typecheck ctx a2 in
+      let info1 = typecheck' ctx a1 in
+      let info2 = typecheck' ctx a2 in
       {
         expr = Pair (info1.expr, info2.expr);
         tp = Sum (info1.tp, info2.tp);
@@ -532,13 +541,13 @@ module Typing = struct
       }
 
     | Case(a',x1,a1,x2,a2) ->
-      let info' = typecheck ctx a' in
+      let info' = typecheck' ctx a' in
       let (tp1,tp2) = assert_sum_type info'.tp in
       let ctx1 = VariableMap.add x1 tp1 ctx in
       let ctx2 = VariableMap.add x2 tp2 ctx in
 
-      let info1 = typecheck ctx1 a1 in
-      let info2 = typecheck ctx2 a2 in
+      let info1 = typecheck' ctx1 a1 in
+      let info2 = typecheck' ctx2 a2 in
       assert_type info1.tp info2.tp;
 
       let usage' u_in u_out u_mid =
@@ -560,7 +569,7 @@ module Typing = struct
       }
 
     | Lambda (x,alpha,a') ->
-      let info' = typecheck (VariableMap.add x alpha ctx) a' in
+      let info' = typecheck' (VariableMap.add x alpha ctx) a' in
       {
         expr = Lambda (x, alpha, info'.expr);
         tp = Arrow(alpha,info'.tp);
@@ -570,8 +579,8 @@ module Typing = struct
       }
 
     | Apply (a1,a2) ->
-      let info1 = typecheck ctx a1 in
-      let info2 = typecheck ctx a2 in
+      let info1 = typecheck' ctx a1 in
+      let info2 = typecheck' ctx a2 in
       let (tp1,tp2) = assert_arrow_type info1.tp in
       assert_type tp1 info2.tp;
       {
@@ -582,5 +591,13 @@ module Typing = struct
             info1.usage u1 u0
             && info2.usage u0 u2))
       }
+
+  let typecheck a =
+    let info = typecheck' VariableMap.empty a in
+    (* linearity check implies info.usage(0,0) *)
+    match info.usage UsageContext.empty UsageContext.empty with
+    | true -> info
+    | false ->
+      terr @@ "Linearity check failed in the usage relation:\n" ^ string_of_info info
 
 end

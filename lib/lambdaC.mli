@@ -97,12 +97,9 @@ module Typing : sig
     expr : Expr.t;
     tp : Type.t;
   }
-  exception TypeError of string
-  val typecheck : typing_context -> Expr.t -> type_information
+  val string_of_info : type_information -> string
+  val pp_info : type_information -> unit
+  exception TypeError
+  val typecheck' : typing_context -> Expr.t -> type_information
+  val typecheck : Expr.t -> type_information
 end
-
-
-(* module Expr_Functor (A : Z_SIG) (B : Z_SIG) : sig
-  val map_expr : (A.t -> B.t) -> Expr.t -> Expr.t
-  val map_lval : (A.t -> B.t) -> Val.t -> Val.t
-end *)

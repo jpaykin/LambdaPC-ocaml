@@ -191,8 +191,11 @@ module SymplecticForm = struct
       LambdaC.Expr.Case(psi_of t',
         x1, psi_of t1,
         x2, psi_of t2)
-    | Apply (Lam(x,tp,t1),t2) -> LambdaC.Expr.Lambda(x, Type.ltype_of_t tp,psi_of t1) @ psi_of t2
+    | Apply (pc1,t2) -> psi_of_pc pc1 @ psi_of t2
     | Force (Suspend t') -> psi_of t'
+  and psi_of_pc pc =
+    let (Lam(x,tp,t)) = pc in
+    LambdaC.Expr.Lambda(x,Type.ltype_of_t tp, psi_of t)
 
   let omega1 a1 a2 =
     ccaseP a1
