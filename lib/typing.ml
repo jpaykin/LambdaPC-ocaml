@@ -149,8 +149,8 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       )
 
     (* The annotations here are fairly restrictive, try to make this better *)
-    | Apply (Annot (e1, Sum(tp1, tp2)), e2) ->
-      apply tp1 tp2 (smtml_of_expr ctx e1 (Sum(tp1, tp2))) (smtml_of_expr ctx e2 tp1)
+    | Apply (Annot (e1, Arrow(tp1, tp2)), e2) ->
+      apply tp1 tp2 (smtml_of_expr ctx e1 (Arrow(tp1, tp2))) (smtml_of_expr ctx e2 tp1)
 
     | _ -> raise @@ TypeError ("[smtml_of_expr]", [a], Some tp)
 

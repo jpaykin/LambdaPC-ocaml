@@ -44,6 +44,49 @@ module UsageContext = struct
 
   let rename from to_ u = M.map (fun z -> if z = from then to_ else z) u
   *)
+
+  let rec exists_usage_subset (u : t) (f : t -> bool) : bool =
+    (* want to check if:
+        exists u0, u0 subset u && f u0 }
+      if u is empty (u=0), just check if f(0)
+      if u is not empty, then pick some x in u:
+        u = (u-{x}) U {x}}
+      then
+        u0 subset u
+        <->
+        u0 subset (u-{x})
+        ||
+        (x \in u0 && (u0-{x} subset (u - {x}))
+
+      so 
+        exists u0, u0 subset u && f u0
+        <->
+
+        exists u0,
+          (u0 subset (u-{x}) && f u0)
+        ||
+        exists u0,
+          (x \in u0 && (u0 - {x} subset (u - {x})) && f u0)
+
+        <->
+
+        exists u0,
+          (u0 subset (u-{x}) && f u0)
+        ||
+        exists u0',
+          (u0' subset (u - {x})) && f ({x} union u0'))
+
+        <->
+
+        exists u0,
+          u0 subset (u - {x})
+          && f u0 || f ({x} union u0')
+    *)
+    if M.is_empty u then f u
+    else
+      let x = M.choose u in
+      exists_usage_subset (M.remove x u)
+        (fun u0 -> f u0 || f (M.add x u0))
 end
 
 module Expr = struct
@@ -365,15 +408,14 @@ module Eval (Zd : Z_SIG) = struct
 
 end
 
-(*
+
 module Typing = struct
   type typing_context = Type.t VariableMap.t
-  type usage_context = UsageContext.M.t
+  type usage_relation = UsageContext.M.t -> UsageContext.M.t -> bool
 
 
   exception TypeError of string
   let terr msg = raise (TypeError msg)
-  exception InferenceError
 
   let type_of_var gamma (x : Variable.t) : Type.t =
     match VariableMap.find_opt x gamma with
@@ -382,162 +424,163 @@ module Typing = struct
       raise (TypeError msg)
     | Some tp -> tp
 
-  (*
-  let assert_available x u (expectation : bool) =
-    let b = UsageContext.mem x u in
-    if b = expectation then ()
-    else if expectation then terr @@ "I expected " ^ string_of_int x ^ " to appear in the usage context " ^ UsageContext.string_of_t u ^ "\n"
-    else terr @@ "I did not expect " ^ string_of_int x ^ " to appear in the usage context " ^ UsageContext.string_of_t u ^ "\n"
 
-  let assert_type (expected : Type.t option) (actual : Type.t) =
-    match expected with
-    | Some expected0 -> if expected0 = actual then ()
-                        else terr @@ "Expected type: " ^ Type.string_of_t expected0
+  type type_information = {
+    usage : usage_relation;
+    expr : Expr.t;
+    tp : Type.t;
+  }
+
+  let assert_arrow_type (alpha : Type.t) : Type.t * Type.t =
+    match alpha with
+    | Type.Arrow (alpha1, alpha2) -> (alpha1, alpha2)
+    | _ -> terr @@ "Expected an arrow type, received: " ^ Type.string_of_t alpha
+
+  let assert_sum_type (alpha : Type.t) : Type.t * Type.t =
+    match alpha with
+    | Type.Sum (alpha1, alpha2) -> (alpha1, alpha2)
+    | _ -> terr @@ "Expected a sum type, received: " ^ Type.string_of_t alpha
+
+  let assert_type (expected : Type.t) (actual : Type.t) =
+    if expected = actual then ()
+    else terr @@ "Expected type: " ^ Type.string_of_t expected
                                    ^ "\nActual type: " ^ Type.string_of_t actual
-    | None -> ()
 
-  let assert_usage (expected : usage_context option) (actual : usage_context) =
-    match expected with
-    | Some expected0 -> if UsageContext.equal expected0 actual then ()
-                        else terr @@ "Expected usage context: " ^ UsageContext.string_of_t expected0
-                                   ^ "\nActual usage context: " ^ UsageContext.string_of_t actual
-    | None -> ()
 
-  let assert_usage_subset u1 u2 =
-    if UsageContext.subset u1 u2 then ()
-    else terr @@ "Expected usage context " ^ UsageContext.string_of_t u1
-               ^ "\nto be a subset of " ^ UsageContext.string_of_t u2
-
-  let check_var gamma u x (alpha0 : Type.t option) (u0 : usage_context option) =
-    let alpha' = type_of_var gamma x in
-    let u' = UsageContext.remove x u in
-    assert_available x u true;
-    assert_type alpha0 alpha';
-    assert_usage u0 u';
-    (alpha',u')
-
-  let check_sum (alpha0 : Type.t option) : (Type.t option) * (Type.t option) =
-    match alpha0 with
-    | None -> (None, None)
-    | Some (Type.Sum (alpha1, alpha2)) -> (Some alpha1, Some alpha2)
-    | Some alpha -> terr @@ "Expected a sum type, received: " ^ Type.string_of_t alpha
-  let check_arrow (alpha0 : Type.t option) : (Type.t option) * (Type.t option) =
-    match alpha0 with
-    | None -> (None, None)
-    | Some (Type.Arrow (alpha1, alpha2)) -> (Some alpha1, Some alpha2)
-    | Some alpha -> terr @@ "Expected an arrow type, received: " ^ Type.string_of_t alpha
-
-  let rec typecheck0 gamma u a alpha0 u0 =
+  let rec typecheck (ctx : typing_context) (a : Expr.t) : type_information = 
     match a with
-    | Expr.Var x -> check_var gamma u x alpha0 u0
+    | Var x ->
+      {
+        expr = Var x;
+        tp = type_of_var ctx x;
+        usage = fun u1 u2 ->
+          UsageContext.mem x u1
+          && UsageContext.equal u2 (UsageContext.remove x u1)
+      }
+
+    | Let (a1,x,a2) ->
+      let info1 = typecheck ctx a1 in
+      let ctx' = VariableMap.add x info1.tp ctx in
+      let info2 = typecheck ctx' a2 in
+      {
+        expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
+        tp = info2.tp;
+        usage = fun u1 u2 ->
+          UsageContext.exists_usage_subset u1 (fun u0 ->
+            not (UsageContext.mem x u1)
+            && info1.usage u1 u0
+            && info2.usage (UsageContext.add x u0) u1
+            && not (UsageContext.mem x u2)
+            )
+      }
+
+    | Zero tp ->
+      {
+        expr = Zero tp;
+        tp = tp;
+        usage = fun u1 u2 -> UsageContext.subset u2 u1
+      }
+
     | Annot (a',alpha) ->
-      assert_type alpha0 alpha;
-      typecheck0 gamma u a' (Some alpha) u0
-    | Zero alpha ->
-      assert_type alpha0 alpha;
-      (match u0 with
-      | Some u' -> (alpha, u')
-      | None -> raise InferenceError
-      )
-    | ZeroA (alpha, u') ->
-      assert_type alpha0 alpha;
-      assert_usage u0 u';
-      assert_usage_subset u' u;
-      (alpha, u')
+      let info' = typecheck ctx a' in
+      assert_type alpha info'.tp;
+      {
+        expr = Annot(info'.expr, alpha);
+        tp = alpha;
+        usage = info'.usage
+      }
 
-    | Const _ ->
-      assert_type alpha0 Type.Unit;
-      assert_usage u0 u;
-      (Type.Unit, u)
+    | Plus (a1,a2) ->
+      let info1 = typecheck ctx a1 in
+      let info2 = typecheck ctx a2 in
+      assert_type info1.tp info2.tp;
+      {
+        expr = Plus (info1.expr, info2.expr);
+        tp = info1.tp;
+        usage = fun u1 u2 ->
+          info1.usage u1 u2 && info2.usage u1 u2
+      }
 
+    | Const r ->
+      {
+        expr = Const r;
+        tp = Unit;
+        usage = UsageContext.equal
+      }
 
-    | Scale (a1, a2) -> (
-      try
-        let (_, u') = typecheck0 gamma u a1 (Some Type.Unit) None in
-        typecheck0 gamma u' a2 alpha0 u0
-      with
-      | InferenceError ->
-        let (alpha', u') = typecheck0 gamma u a2 alpha0 None in
-        let (_, u'') = typecheck0 gamma u' a1 (Some Type.Unit) u0 in
-        (alpha', u'')
-    )
+    | Scale (a1,a2) ->
+      let info1 = typecheck ctx a1 in
+      assert_type Unit info1.tp;
+      let info2 = typecheck ctx a2 in
+      {
+        expr = Scale(info1.expr, info2.expr);
+        tp = info2.tp;
+        usage = (fun u1 u2 ->
+          UsageContext.exists_usage_subset u1 (fun u0 ->
+            info1.usage u1 u0
+            && info2.usage u0 u2))
+      }
 
-    | Plus (a1, a2) -> (
-      try
-        let (alpha,u') = typecheck0 gamma u a1 alpha0 u0 in
-        typecheck0 gamma u' a2 (Some alpha) (Some u')
-      with
-      | InferenceError ->
-        let (alpha,u') = typecheck0 gamma u a2 alpha0 u0 in
-        typecheck0 gamma u' a1 (Some alpha) (Some u')
-      )
+    | Pair (a1,a2) ->
+      let info1 = typecheck ctx a1 in
+      let info2 = typecheck ctx a2 in
+      {
+        expr = Pair (info1.expr, info2.expr);
+        tp = Sum (info1.tp, info2.tp);
+        usage = fun u1 u2 ->
+          info1.usage u1 u2 && info2.usage u1 u2
+      }
 
-    | Pair (a1, a2) ->
-      let (alpha10, alpha20) = check_sum alpha0 in
-      (try
-        let (alpha1, u') = typecheck0 gamma u a1 alpha10 u0 in
-        let (alpha2, _) = typecheck0 gamma u a2 alpha20 (Some u') in
-        (Type.Sum (alpha1,alpha2), u')
-      with
-      | InferenceError ->
-        let (alpha2, u') = typecheck0 gamma u a2 alpha20 u0 in
-        let (alpha1, _) = typecheck0 gamma u a1 alpha10 (Some u') in
-        (Type.Sum (alpha1,alpha2), u') 
-      )
+    | Case(a',x1,a1,x2,a2) ->
+      let info' = typecheck ctx a' in
+      let (tp1,tp2) = assert_sum_type info'.tp in
+      let ctx1 = VariableMap.add x1 tp1 ctx in
+      let ctx2 = VariableMap.add x2 tp2 ctx in
 
-    | Case (a, x1, a1, x2, a2) ->
-      let (alpha, u') = typecheck0 gamma u a None None in
-      let (Some alpha1, Some alpha2) = check_sum (Some alpha) [@@warning "-partial-match"] in
-      let gamma1 = VariableMap.add x1 alpha1 gamma in
-      let gamma2 = VariableMap.add x2 alpha2 gamma in
-      let u1 = UsageContext.add x1 u' in
-      let u2 = UsageContext.add x2 u' in
-      
-      let (alpha',u'') =
-        (try
-          let (alpha', u'') = typecheck0 gamma1 u1 a1 alpha0 u0 in
-          typecheck0 gamma2 u2 a2 (Some alpha') (Some u'')
-        with
-        | InferenceError ->
-          let (alpha', u'') = typecheck0 gamma2 u2 a2 alpha0 u0 in
-          typecheck0 gamma1 u1 a1 (Some alpha') (Some u'')
-        ) in
+      let info1 = typecheck ctx1 a1 in
+      let info2 = typecheck ctx2 a2 in
+      assert_type info1.tp info2.tp;
 
-      assert_available x1 u'' false;
-      assert_available x2 u'' false;
-      (alpha', u'')
+      let usage' u_in u_out u_mid =
+        (* variables x1 and x2 should not appear in u_in or u_out at all *)
+        UsageContext.is_empty @@ UsageContext.inter
+          (UsageContext.union u_in u_out)
+          (UsageContext.of_list [x1;x2])
+        && info'.usage u_in u_mid
+        && info1.usage (UsageContext.add x1 u_mid) u_out
+        && info2.usage (UsageContext.add x2 u_mid) u_out
+      in
+      {
+        expr = Case(Annot(info'.expr, info'.tp),x1,info1.expr, x2, info2.expr);
+        tp = info1.tp;
+        usage = fun u_in u_out ->
+          UsageContext.exists_usage_subset u_in (fun u_mid ->
+            usage' u_in u_out u_mid
+          )
+      }
 
-    | Lambda (x, alpha1, a') ->
-      let (alpha10, alpha20) = check_arrow alpha0 in
-      assert_type alpha10 alpha1;
-      let gamma' = VariableMap.add x alpha1 gamma in
-      let u' = UsageContext.add x u in
-      let (alpha2, u'') = typecheck0 gamma' u' a' alpha20 u0 in
-      assert_available x u'' false;
-      (Type.Arrow (alpha1, alpha2), u'')
+    | Lambda (x,alpha,a') ->
+      let info' = typecheck (VariableMap.add x alpha ctx) a' in
+      {
+        expr = Lambda (x, alpha, info'.expr);
+        tp = Arrow(alpha,info'.tp);
+        usage = fun u1 u2 ->
+          not UsageContext.(mem x (union u1 u2))
+          && info'.usage (UsageContext.add x u1) u2
+      }
 
-    | Apply (a1, a2) -> (
-      try
-        let (alpha, u') = typecheck0 gamma u a1 None None in
-        let (Some alpha1, Some alpha2) = check_arrow (Some alpha) [@@warning "-partial-match"] in
-        let (_, u'') = typecheck0 gamma u' a2 (Some alpha1) u0 in
-        (Type.Arrow(alpha1, alpha2), u'')
-      with
-      | InferenceError ->
-        let (alpha1, u') = typecheck0 gamma u a2 None None in
-        let alpha0' = Option.map (fun alpha2 -> Type.Arrow(alpha1,alpha2)) alpha0 in
-        let (alpha', u'') = typecheck0 gamma u' a1 alpha0' u0 in
-        let (Some alpha1, Some alpha2) = check_arrow (Some alpha') [@@warning "-partial-match"] in
-        (Type.Arrow (alpha1, alpha2), u'')
-    )
+    | Apply (a1,a2) ->
+      let info1 = typecheck ctx a1 in
+      let info2 = typecheck ctx a2 in
+      let (tp1,tp2) = assert_arrow_type info1.tp in
+      assert_type tp1 info2.tp;
+      {
+        expr = Apply (Annot (info1.expr,info1.tp), info2.expr);
+        tp = tp2;
+        usage = (fun u1 u2 ->
+          UsageContext.exists_usage_subset u1 (fun u0 ->
+            info1.usage u1 u0
+            && info2.usage u0 u2))
+      }
 
-  let typecheck a = 
-    let (alpha,u) = typecheck0 VariableMap.empty UsageContext.empty a None None in
-    if UsageContext.is_empty(u) then alpha
-    else 
-      let msg = "Unused variables: " ^ UsageContext.string_of_t u in
-      raise (TypeError msg)
-  *)
 end
-
-*)

@@ -7,7 +7,7 @@ end
 
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
-module UsageContext : Set.S
+module UsageContext : Set.S with type elt = Variable.t
 
 
 module VariableEnvironment : sig
@@ -87,16 +87,20 @@ module Eval : functor (Zd : Z_SIG) -> sig
 
 end
 
-(*
 
 module Typing : sig
   type typing_context
-  type usage_context
+  type usage_relation = UsageContext.t -> UsageContext.t -> bool
+
+  type type_information = {
+    usage : usage_relation;
+    expr : Expr.t;
+    tp : Type.t;
+  }
   exception TypeError of string
-  exception InferenceError
-  val typecheck : Expr.t -> Type.t
+  val typecheck : typing_context -> Expr.t -> type_information
 end
-*)
+
 
 (* module Expr_Functor (A : Z_SIG) (B : Z_SIG) : sig
   val map_expr : (A.t -> B.t) -> Expr.t -> Expr.t
