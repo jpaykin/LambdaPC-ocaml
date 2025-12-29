@@ -145,9 +145,11 @@ expr:
     { Expr.Prod (t1, t2) }
   
   | t=expr CARROT n=INT
-    { Expr.Pow (t, n) }
+    { Expr.Pow (t, LambdaC.Expr.Const n) }
   | t=expr CARROT LCURLY n=INT RCURLY
-    { Expr.Pow (t, n) }
+    { Expr.Pow (t, LambdaC.Expr.Const n) }
+  | t=expr CARROT LCURLY a=lexpr RCURLY
+    { Expr.Pow (t, a) }
 
   | CASE t=expr OF LCURLY XCONST ARROW tx=expr MID ZCONST ARROW tz=expr RCURLY
     { Expr.CasePauli (t, tx, tz) }

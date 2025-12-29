@@ -1,4 +1,177 @@
 open Scalars
+open LambdaPC
+
+module VariableSet = LambdaC.VariableSet
+module TypeInformation = LambdaC.TypeInformation
+open TypeInformation
+
+module LinearityTyping = struct
+  type type_information = (LambdaPC.Type.t, LambdaPC.Expr.t) LambdaC.TypeInformation.t
+  let string_of_info = TypeInformation.string_of_info Type.string_of_t Expr.pretty_string_of_t
+  let pp_info info = print_string @@ string_of_info info
+  let assert_type = TypeInformation.assert_type Type.string_of_t
+
+  let assert_pc_type (tp : LambdaC.Type.t) : Type.t =
+    match Type.t_of_ltype tp with
+    | Some tp' -> tp'
+    | None ->
+      terr @@ "Expected a LambdaPC-compatible type, received: " ^ LambdaC.Type.string_of_t tp
+
+  let assert_unit_type (tp : LambdaC.Type.t) : unit =
+    match tp with
+    | Unit -> ()
+    | _ -> terr @@ "Expected a unit type, received: " ^ LambdaC.Type.string_of_t tp
+
+  let assert_ptensor_type (tp : Type.t) : Type.t * Type.t =
+    match tp with
+    | PTensor(tp1,tp2) -> (tp1,tp2)
+    | _ -> terr @@ "Expected a PTensor type, received: " ^ Type.string_of_t tp
+
+  let rec typecheck' (ctx : Type.t VariableMap.t) (e : Expr.t) : type_information =
+    match e with
+    | Var x ->
+      {
+        expr = Var x;
+        tp = type_of_var ctx x;
+        usage = var_usage x
+      }
+    | Annot(e',tp) ->
+      let info' = typecheck' ctx e' in
+      assert_type tp info'.tp;
+      {
+        expr = Annot(info'.expr, tp);
+        tp = tp;
+        usage = info'.usage
+      }
+    | Let (e1,x,e2) ->
+      let info1 = typecheck' ctx e1 in
+      let ctx' = VariableMap.add x info1.tp ctx in
+      let info2 = typecheck' ctx' e2 in
+      {
+        expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
+        tp = info2.tp;
+        usage = disjoint_usage_with info1 x info2
+      }
+    | LExpr a ->
+      let info' = typecheckC ctx a in
+      let tp' = assert_pc_type info'.tp in
+      {
+        expr = LExpr info'.expr;
+        tp = tp';
+        usage = info'.usage
+      }
+    | Phase (a1,e2) ->
+      let info1 = typecheckC ctx a1 in
+      let info2 = typecheck' ctx e2 in
+      assert_unit_type info1.tp;
+      {
+        expr = Phase(info1.expr, info2.expr);
+        tp = info2.tp;
+        usage = same_usage info1 info2
+      }
+
+    | Prod (e1,e2) ->
+      let info1 = typecheck' ctx e1 in
+      let info2 = typecheck' ctx e2 in
+      assert_type info1.tp info2.tp;
+      {
+        expr = Prod(info1.expr, info2.expr);
+        tp = info1.tp;
+        usage = same_usage info1 info2
+      }
+    | Pow (e1, a2) ->
+      let info1 = typecheck' ctx e1 in
+      let info2 = typecheckC ctx a2 in
+      assert_unit_type info2.tp;
+      {
+        expr = Pow(info1.expr, info2.expr);
+        tp = info1.tp;
+        usage = disjoint_usage info1 info2
+      }
+    | CasePauli(e0,ex,ez) ->
+      let info0 = typecheck' ctx e0 in
+      let infox = typecheck' ctx ex in
+      let infoz = typecheck' ctx ez in
+      assert_type Pauli info0.tp;
+      assert_type infox.tp infoz.tp;
+      {
+        expr = CasePauli (Annot(info0.expr, Pauli), infox.expr, infoz.expr);
+        tp = infox.tp;
+        usage = fun u_in u_out ->
+          VariableSet.exists_usage_subset u_in (fun u_mid ->
+            info0.usage u_in u_mid
+            && infox.usage u_mid u_out
+            && infoz.usage u_mid u_out
+            )
+      }
+    | In1 (e1,tp2) ->
+      let info1 = typecheck' ctx e1 in
+      {
+        expr = In1(info1.expr,tp2);
+        tp = PTensor(info1.tp,tp2);
+        usage = info1.usage
+      }
+    | In2 (tp1,e2) ->
+      let info2 = typecheck' ctx e2 in
+      {
+        expr = In2(tp1,info2.expr);
+        tp = PTensor(tp1,info2.tp);
+        usage = info2.usage
+      }
+    | CasePTensor (e0,x1,e1,x2,e2) ->
+      let info0 = typecheck' ctx e0 in
+      let (tp1,tp2) = assert_ptensor_type info0.tp in
+      let info1 = typecheck' (VariableMap.add x1 tp1 ctx) e1 in
+      let info2 = typecheck' (VariableMap.add x2 tp2 ctx) e2 in
+      assert_type info1.tp info2.tp;
+      {
+        expr = CasePTensor(Annot(info0.expr,info0.tp), x1, info1.expr, x2, info2.expr);
+        tp = info1.tp;
+        usage = disjoint_usage_branch info0 x1 info1 x2 info2
+      }
+    | Apply(pc1,e2) ->
+      let info1 = typecheck_pc ctx pc1 in
+      let info2 = typecheck' ctx e2 in
+      let (tp1,tp2) = info1.tp in
+      assert_type tp1 info2.tp;
+      {
+        expr = Apply(info1.expr, info2.expr);
+        tp = tp2;
+        usage = disjoint_usage info1 info2 (* is this right? *)
+      }
+    | Force (Suspend e') -> typecheck' ctx e'
+  and typecheckC (ctx : Type.t VariableMap.t) (a : LambdaC.Expr.t) =
+    LambdaC.Typing.typecheck' (VariableMap.map Type.ltype_of_t ctx) a
+  and typecheck_pc ctx pc =
+    let (Lam(x,tp,t)) = pc in
+    let info = typecheck' (VariableMap.add x tp ctx) t in
+    {
+      expr = Lam(x,tp,info.expr);
+      tp = (tp,info.tp);
+      usage = fun u1 u2 ->
+        not (VariableSet.mem x (VariableSet.union u1 u2))
+        && info.usage (VariableSet.add x u1) u2
+    }
+
+  let linearity_check (e : Expr.t) : type_information =
+    let info = typecheck' VariableMap.empty e in
+    (* linearity check implies info.usage(0,0) *)
+    match info.usage VariableSet.empty VariableSet.empty with
+    | true -> info
+    | false ->
+      terr @@ "Linearity check failed in the usage relation.\n" ^ string_of_info info
+
+  let linearity_check_pc (pc : Expr.pc) =
+    let info = typecheck_pc VariableMap.empty pc in
+    match info.usage VariableSet.empty VariableSet.empty with
+    | true -> info
+    | false ->
+      terr @@ "Linearity check failed in the usage relation.\n" 
+      ^ TypeInformation.string_of_info
+        (fun (tp1,tp2) -> "|" ^ Type.string_of_t tp1 ^ " -o " ^ Type.string_of_t tp2 ^ "|")
+        Expr.pretty_string_of_pc
+        info
+end
 
 module SMT = struct
   open Smtml
@@ -100,17 +273,20 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     let e2' = apply tp2 tp' (lambda x2 e2) v2 in
     plus tp' e1' e2'
   
-  exception TypeError of (string * Expr.t list * Type.t option)
+  (*exception TypeError of (string * Expr.t list * Type.t option)*)
 
   let rec smtml_of_expr (ctx : Smtml.Symbol.t VariableMap.t) (a : Expr.t) tp =
     match a with
     | Var x -> var ctx x
     | Let (Annot(a1, tp1),x,a2) ->
-
         let e1 = smtml_of_expr ctx a1 tp1 in
         let s = make_symbol tp1 x in
         let e2 = smtml_of_expr (VariableMap.add x s ctx) a2 tp in
         Smtml.Expr.let_in [Smtml.Expr.symbol s; e1] e2
+    | Let(_,_,_) ->
+      terr @@ "[smtml_of_expr] Let statement must be annotated\n"
+        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
+
     | Zero tp -> zero tp
     | Annot (a, _) -> smtml_of_expr ctx a tp
     | Plus (e1, e2) -> plus tp (smtml_of_expr ctx e1 tp) (smtml_of_expr ctx e2 tp)
@@ -122,7 +298,10 @@ module SmtLambdaC (Zd : Z_SIG) = struct
           let e1' = smtml_of_expr ctx e1 tp1 in
           let e2' = smtml_of_expr ctx e2 tp2 in
           SMT.pair e1' e2'
-        | _ -> raise @@ TypeError ("[smtml_of_expr] Expressions of the form (-,-) must have sum type", [a], Some tp)
+        | _ -> 
+          terr @@ "[smtml_of_expr] Expressions of the form (-,-) must have sum type\n"
+          ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^"\n"
+          ^ "\tType: " ^ LambdaC.Type.string_of_t tp
       )
 
     (* The annotations here are fairly restrictive, try to make this better using the typechecker/type inference *)
@@ -135,6 +314,9 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       let e1' = smtml_of_expr ctx1 e1 tp in
       let e2' = smtml_of_expr ctx2 e2 tp in
       case tp1 tp2 tp e' s1 e1' s2 e2'
+    | Case (_, _, _, _, _) ->
+      terr @@ "[smtml_of_expr] Guard of case branch must be annotated\n"
+        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
 
     | Lambda (x,_,e') ->
       ( match tp with
@@ -143,26 +325,34 @@ module SmtLambdaC (Zd : Z_SIG) = struct
           let ctx' = VariableMap.add x s ctx in
           let e' = smtml_of_expr ctx' e' tp2 in
           lambda s e'
-        | _ -> raise @@ TypeError ("[smtml_of_expr] Expressions of the form Lambda(-,-,-) must have function type",
-                                  [a],
-                                  Some tp)
+        | _ -> 
+          terr @@ "[smtml_of_expr] Expressions of the form Lambda(-,-,-) must have arrow type\n"
+          ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^"\n"
+          ^ "\tType: " ^ LambdaC.Type.string_of_t tp
       )
 
     (* The annotations here are fairly restrictive, try to make this better *)
     | Apply (Annot (e1, Arrow(tp1, tp2)), e2) ->
       apply tp1 tp2 (smtml_of_expr ctx e1 (Arrow(tp1, tp2))) (smtml_of_expr ctx e2 tp1)
+    | Apply(_,_) -> terr @@ "[smtml_of_expr] Application must be annotated\n"
+        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
 
-    | _ -> raise @@ TypeError ("[smtml_of_expr]", [a], Some tp)
+
+    | _ -> 
+      terr @@ "[smtml_of_expr] Could not convert LambdaC expression to Smtml expression\n"
+      ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^ "\n"
+      ^ "\tType: " ^ LambdaC.Type.string_of_t tp
+
 
   (*
-  let rec free_variables (a : Expr.t) : LambdaC.UsageContext.t =
+  let rec free_variables (a : Expr.t) : LambdaC.VariableSet.t =
     match a with 
-    | Var x -> UsageContext.singleton x
-    | Zero _ -> UsageContext.empty (* ?? *)
+    | Var x -> VariableSet.singleton x
+    | Zero _ -> VariableSet.empty (* ?? *)
     | ZeroA (_,ctx) -> ctx
     | Annot (a, _) -> free_variables a
     | Plus (a1,a2) -> free_variables a1 `union` free_variables a2
-    | Const r -> UsageContext.empty
+    | Const r -> VariableSet.empty
     | Scale (a1, a2) -> free_variables a1 `union` free_variables a2
     | Pair (a1, a2) -> free_variables a1 `union` free_variables a2
     | Case (a',x1,a1,x2,a2) ->
@@ -178,9 +368,13 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     | Unit, Int r -> Val.Const r
     | Sum (tp1,tp2), List [v1; v2] -> Val.Pair (value_of_smtml tp1 v1, value_of_smtml tp2 v2)
     | Arrow (_, _), List [_;_] -> 
-      raise @@ TypeError ("[smtml] Cannot coerce smtml value to LambdaC value of function type", [], Some tp)
+      terr @@ "[smtml] Cannot coerce smtml value to LambdaC value of function type\n"
+        ^ "\tValue: " ^ Smtml.Value.to_string v ^ "\n"
+        ^ "\tType: " ^ Type.string_of_t tp ^ "\n"
     | _, _ -> 
-      raise @@ TypeError ("[smtml] Cannot find LambdaC value corresponding to the given smtml value", [], Some tp)
+      terr @@ "[smtml] Cannot find LambdaC value corresponding to the given smtml value\n"
+        ^ "\tValue: " ^ Smtml.Value.to_string v ^ "\n"
+        ^ "\tType: " ^ Type.string_of_t tp ^ "\n"
 
   module VariableMap = LambdaC.VariableMap
   (* When we encounter a free variable in a, add a binding to the corresponding symbol *)
@@ -203,6 +397,17 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     lhs : Val.t;
     rhs : Val.t
   }
+
+  let string_of_inputs (m : Val.t VariableMap.t) : string =
+    let f i v s = "x" ^ string_of_int i ^ " |-> " ^ Val.pretty_string_of_t v ^ "; " ^ s in
+    "[" ^ VariableMap.fold f m "]"
+
+  let string_of_counterexample counter =
+    "\tInput(s): " ^ string_of_inputs counter.inputs
+    ^ "\n\t"
+    ^ "omega(f i1, f i2) = " ^ Val.pretty_string_of_t counter.lhs ^ "\n\t"
+    ^ "omega(i1, i2) = " ^ Val.pretty_string_of_t counter.rhs
+
   let equiv (tp : Type.t) (ctx : Type.t VariableMap.t) (a1 : Expr.t) (a2 : Expr.t) : (unit, counterexample) result =
     let ctx0 = make_symbol_map ctx in
 
@@ -220,7 +425,10 @@ module SmtLambdaC (Zd : Z_SIG) = struct
         lhs = v1;
         rhs = v2
         }
-    | Unknown -> raise @@ TypeError ("[SmtLambdaC.equiv] Solver timeout", [a1;a2], Some tp)
+    | Unknown -> 
+      terr @@ "[SmtLambdaC.equiv] Solver timeout checking equivalence:\n"
+      ^ "\t1. " ^ Expr.pretty_string_of_t a1 ^ "\n"
+      ^ "\t2. " ^ Expr.pretty_string_of_t a2 ^ "\n"
     
 end
 
@@ -229,7 +437,7 @@ end
 module SmtLambdaPC (S : SCALARS) = struct
   module SmtC = SmtLambdaC (S.Zd)
 
-  let symplectic_check in_tp out_tp (f : LambdaPC.Expr.pc) : (unit, SmtC.counterexample) result =
+  let symplectic_check in_tp out_tp (f : LambdaPC.Expr.pc) : unit =
     match f with
     | Lam(x,_,t) ->
         let in_tp' = LambdaPC.Type.ltype_of_t in_tp in
@@ -249,7 +457,15 @@ module SmtLambdaPC (S : SCALARS) = struct
         (* check for equivalence *)
         let ctx = LambdaC.VariableMap.of_list [(x1,in_tp'); (x2,in_tp')] in
         
-        SmtC.equiv LambdaC.Type.Unit ctx lhs rhs
+        (match SmtC.equiv LambdaC.Type.Unit ctx lhs rhs with
+        | Ok _ -> ()
+        | Error counter ->
+          terr @@ "TYPE ERROR\nSymplectomorphism check failed with the following counterexample:\n" ^ SmtC.string_of_counterexample counter
+        )
 
-      
+    let typecheck (pc : LambdaPC.Expr.pc) : Type.t * Type.t =
+      let info = LinearityTyping.linearity_check_pc pc in
+      let (in_tp,out_tp) = info.tp in
+      symplectic_check in_tp out_tp info.expr;
+      (in_tp, out_tp)
 end

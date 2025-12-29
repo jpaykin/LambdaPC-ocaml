@@ -12,7 +12,7 @@ let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
 
 let id tp = lambda tp (fun q -> q)
 let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
-let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (-1)))
+let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))
 let phasegate = lambda Pauli (fun q ->
     caseofP q
       (*X->*) pauliY
@@ -80,6 +80,10 @@ module Eval2 = LambdaPC.Eval(S2)
 open Interface
 
 
+(* Testing type relations *)
+module TypeChecker = Typing.SmtLambdaPC(S2)
+
+
 let evalTest () =
 
 
@@ -87,8 +91,8 @@ let evalTest () =
   eval (pauliY);
   eval pauliXY;
   eval (pauliNegX2Y3);
-  eval (pow pauliX 1);
-  eval (pow pauliZ 0);
+  eval (pow pauliX (const 1));
+  eval (pow pauliZ (const 0));
   eval (hadamard @ pauliX);
   eval (hadamard @ (phase (const 1) pauliZ));
   eval (pauliZ * pauliX);

@@ -7,7 +7,10 @@ end
 
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
-module UsageContext : Set.S with type elt = Variable.t
+module VariableSet : sig
+  include Set.S with type elt = Variable.t
+  val exists_usage_subset : t -> (t -> bool) -> bool
+end
 
 
 module VariableEnvironment : sig
@@ -87,19 +90,34 @@ module Eval : functor (Zd : Z_SIG) -> sig
 
 end
 
+module TypeInformation : sig
+  type usage_relation = VariableSet.t -> VariableSet.t -> bool
+
+  type ('tp, 'expr) t = {
+    usage : usage_relation;
+    expr : 'expr;
+    tp : 'tp;
+  }
+
+  val string_of_info : ('tp -> string) -> ('expr -> string) -> ('tp,'expr) t -> string
+  val pp_info : ('tp -> string) -> ('expr -> string) -> ('tp,'expr) t -> unit
+
+  exception TypeError
+  val terr : string -> 'a
+  val type_of_var : 'a VariableMap.t -> Variable.t -> 'a
+  val assert_type : ('a -> string) -> 'a -> 'a -> unit
+
+  val var_usage : Variable.t -> usage_relation
+  val same_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_with : ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_branch : ('tp0,'expr0) t -> Variable.t -> ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
+end
+
 
 module Typing : sig
-  type typing_context
-  type usage_relation = UsageContext.t -> UsageContext.t -> bool
-
-  type type_information = {
-    usage : usage_relation;
-    expr : Expr.t;
-    tp : Type.t;
-  }
-  val string_of_info : type_information -> string
-  val pp_info : type_information -> unit
-  exception TypeError
-  val typecheck' : typing_context -> Expr.t -> type_information
-  val typecheck : Expr.t -> type_information
+  val string_of_info : (Type.t,Expr.t) TypeInformation.t -> string
+  val pp_info : (Type.t,Expr.t) TypeInformation.t -> unit
+  val typecheck' : Type.t VariableMap.t -> Expr.t -> (Type.t,Expr.t) TypeInformation.t
+  val typecheck : Expr.t -> (Type.t,Expr.t) TypeInformation.t
 end

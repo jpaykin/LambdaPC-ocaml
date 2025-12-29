@@ -36,7 +36,7 @@ module VariableEnvironment = struct
 end 
 
 
-module UsageContext = struct
+module VariableSet = struct
   module M = Set.Make(Variable)
   include M
   (*
@@ -408,37 +408,83 @@ module Eval (Zd : Z_SIG) = struct
 
 end
 
+module TypeInformation = struct
+  type usage_relation = VariableSet.t -> VariableSet.t -> bool
 
-module Typing = struct
-  type typing_context = Type.t VariableMap.t
-  type usage_relation = UsageContext.M.t -> UsageContext.M.t -> bool
+  type ('tp, 'expr) t = {
+    usage : usage_relation;
+    expr : 'expr;
+    tp : 'tp;
+  }
+
+  let string_of_info string_of_tp string_of_expr info =
+    "Type Information:\n"
+    ^ "\tAnnotated Expression: " ^ string_of_expr info.expr ^"\n"
+    ^ "\tType: " ^ string_of_tp info.tp ^"\n"
+  let pp_info string_of_tp string_of_expr info =
+    print_endline (string_of_info string_of_tp string_of_expr info);
+    flush stdout
 
 
   exception TypeError
   let terr msg =
-    print_string "TYPE ERROR";
-    print_string msg;
+    print_string "TYPE ERROR\n";
+    print_endline msg;
+    flush stdout;
     raise TypeError
 
-  let type_of_var gamma (x : Variable.t) : Type.t =
+  let type_of_var (gamma : 'a VariableMap.t) (x : Variable.t) : 'a =
     match VariableMap.find_opt x gamma with
     | None ->
       let msg = "Variable " ^ string_of_int x ^ " not found in the typing context" in
       terr msg
     | Some tp -> tp
 
+  
+  let assert_type string_of_a (expected : 'a) (actual : 'a) =
+    if expected = actual then ()
+    else terr @@ "Expected type: " ^ string_of_a expected
+                                   ^ "\nActual type: " ^ string_of_a actual
 
-  type type_information = {
-    usage : usage_relation;
-    expr : Expr.t;
-    tp : Type.t;
-  }
-  let string_of_info info =
-    "Type Information:\n"
-    ^ "\tAnnotated Expression: " ^ Expr.pretty_string_of_t info.expr ^"\n"
-    ^ "\tType: " ^ Type.string_of_t info.tp ^"\n"
-  let pp_info info = print_string (string_of_info info)
+  let var_usage x : usage_relation =
+    fun u1 u2 ->
+      VariableSet.mem x u1
+      && VariableSet.equal u2 (VariableSet.remove x u1)
+  let same_usage info1 info2 : usage_relation =
+    fun u1 u2 -> info1.usage u1 u2 && info2.usage u1 u2
+  let disjoint_usage info1 info2 : usage_relation =
+    fun u_in u_out ->
+      VariableSet.exists_usage_subset u_in (fun u_mid ->
+        info1.usage u_in u_mid
+        && info2.usage u_mid u_out
+        )
+  let disjoint_usage_with info1 x info2 : usage_relation =
+    fun u_in u_out ->
+      VariableSet.exists_usage_subset u_in (fun u_mid ->
+        not (VariableSet.mem x u_in)
+        && info1.usage u_in u_mid
+        && info2.usage (VariableSet.add x u_mid) u_out
+        && not (VariableSet.mem x u_out)
+      )
+  let disjoint_usage_branch info0 x1 info1 x2 info2 : usage_relation =
+    fun u_in u_out ->
+      VariableSet.exists_usage_subset u_in (fun u_mid ->
+        (* variables x1 and x2 should not appear in u_in or u_out at all *)
+        (VariableSet.is_empty @@ VariableSet.inter
+          (VariableSet.union u_in u_out)
+          (VariableSet.of_list [x1;x2]))
+        && info0.usage u_in u_mid
+        && info1.usage (VariableSet.add x1 u_mid) u_out
+        && info2.usage (VariableSet.add x2 u_mid) u_out
+        )
+end
 
+module Typing = struct
+  type type_information = (Type.t,Expr.t) TypeInformation.t
+  open TypeInformation
+  let string_of_info = TypeInformation.string_of_info Type.string_of_t Expr.pretty_string_of_t
+  let pp_info info = print_string @@ string_of_info info
+  let assert_type = TypeInformation.assert_type Type.string_of_t
 
   let assert_arrow_type (alpha : Type.t) : Type.t * Type.t =
     match alpha with
@@ -450,21 +496,13 @@ module Typing = struct
     | Type.Sum (alpha1, alpha2) -> (alpha1, alpha2)
     | _ -> terr @@ "Expected a sum type, received: " ^ Type.string_of_t alpha
 
-  let assert_type (expected : Type.t) (actual : Type.t) =
-    if expected = actual then ()
-    else terr @@ "Expected type: " ^ Type.string_of_t expected
-                                   ^ "\nActual type: " ^ Type.string_of_t actual
-
-
-  let rec typecheck' (ctx : typing_context) (a : Expr.t) : type_information = 
+  let rec typecheck' (ctx : Type.t VariableMap.t) (a : Expr.t) : type_information = 
     match a with
     | Var x ->
       {
         expr = Var x;
         tp = type_of_var ctx x;
-        usage = fun u1 u2 ->
-          UsageContext.mem x u1
-          && UsageContext.equal u2 (UsageContext.remove x u1)
+        usage = var_usage x
       }
 
     | Let (a1,x,a2) ->
@@ -474,20 +512,14 @@ module Typing = struct
       {
         expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
         tp = info2.tp;
-        usage = fun u1 u2 ->
-          UsageContext.exists_usage_subset u1 (fun u0 ->
-            not (UsageContext.mem x u1)
-            && info1.usage u1 u0
-            && info2.usage (UsageContext.add x u0) u1
-            && not (UsageContext.mem x u2)
-            )
+        usage = disjoint_usage_with info1 x info2
       }
 
     | Zero tp ->
       {
         expr = Zero tp;
         tp = tp;
-        usage = fun u1 u2 -> UsageContext.subset u2 u1
+        usage = fun u1 u2 -> VariableSet.subset u2 u1
       }
 
     | Annot (a',alpha) ->
@@ -506,15 +538,14 @@ module Typing = struct
       {
         expr = Plus (info1.expr, info2.expr);
         tp = info1.tp;
-        usage = fun u1 u2 ->
-          info1.usage u1 u2 && info2.usage u1 u2
+        usage = same_usage info1 info2
       }
 
     | Const r ->
       {
         expr = Const r;
         tp = Unit;
-        usage = UsageContext.equal
+        usage = VariableSet.equal
       }
 
     | Scale (a1,a2) ->
@@ -524,10 +555,7 @@ module Typing = struct
       {
         expr = Scale(info1.expr, info2.expr);
         tp = info2.tp;
-        usage = (fun u1 u2 ->
-          UsageContext.exists_usage_subset u1 (fun u0 ->
-            info1.usage u1 u0
-            && info2.usage u0 u2))
+        usage = disjoint_usage info1 info2
       }
 
     | Pair (a1,a2) ->
@@ -536,8 +564,7 @@ module Typing = struct
       {
         expr = Pair (info1.expr, info2.expr);
         tp = Sum (info1.tp, info2.tp);
-        usage = fun u1 u2 ->
-          info1.usage u1 u2 && info2.usage u1 u2
+        usage = same_usage info1 info2
       }
 
     | Case(a',x1,a1,x2,a2) ->
@@ -549,23 +576,10 @@ module Typing = struct
       let info1 = typecheck' ctx1 a1 in
       let info2 = typecheck' ctx2 a2 in
       assert_type info1.tp info2.tp;
-
-      let usage' u_in u_out u_mid =
-        (* variables x1 and x2 should not appear in u_in or u_out at all *)
-        UsageContext.is_empty @@ UsageContext.inter
-          (UsageContext.union u_in u_out)
-          (UsageContext.of_list [x1;x2])
-        && info'.usage u_in u_mid
-        && info1.usage (UsageContext.add x1 u_mid) u_out
-        && info2.usage (UsageContext.add x2 u_mid) u_out
-      in
       {
         expr = Case(Annot(info'.expr, info'.tp),x1,info1.expr, x2, info2.expr);
         tp = info1.tp;
-        usage = fun u_in u_out ->
-          UsageContext.exists_usage_subset u_in (fun u_mid ->
-            usage' u_in u_out u_mid
-          )
+        usage = disjoint_usage_branch info' x1 info1 x2 info2
       }
 
     | Lambda (x,alpha,a') ->
@@ -574,8 +588,8 @@ module Typing = struct
         expr = Lambda (x, alpha, info'.expr);
         tp = Arrow(alpha,info'.tp);
         usage = fun u1 u2 ->
-          not UsageContext.(mem x (union u1 u2))
-          && info'.usage (UsageContext.add x u1) u2
+          not VariableSet.(mem x (union u1 u2))
+          && info'.usage (VariableSet.add x u1) u2
       }
 
     | Apply (a1,a2) ->
@@ -586,16 +600,13 @@ module Typing = struct
       {
         expr = Apply (Annot (info1.expr,info1.tp), info2.expr);
         tp = tp2;
-        usage = (fun u1 u2 ->
-          UsageContext.exists_usage_subset u1 (fun u0 ->
-            info1.usage u1 u0
-            && info2.usage u0 u2))
+        usage = disjoint_usage info1 info2
       }
 
   let typecheck a =
     let info = typecheck' VariableMap.empty a in
     (* linearity check implies info.usage(0,0) *)
-    match info.usage UsageContext.empty UsageContext.empty with
+    match info.usage VariableSet.empty VariableSet.empty with
     | true -> info
     | false ->
       terr @@ "Linearity check failed in the usage relation:\n" ^ string_of_info info

@@ -10,6 +10,17 @@ module Type = struct
     | Pauli -> Sum (Unit, Unit)
     | PTensor (tp1, tp2) -> Sum (ltype_of_t tp1, ltype_of_t tp2)
 
+  let rec t_of_ltype (tp : LambdaC.Type.t) : t option =
+    match tp with
+    | Sum(Unit,Unit) -> Some Pauli
+    | Sum(tp1,tp2) ->
+      (match t_of_ltype tp1, t_of_ltype tp2 with
+      | Some tp1', Some tp2' ->
+        Some (PTensor (tp1',tp2'))
+      | _, _ -> None
+      )
+    | _ -> None
+
   let rec string_of_t (tp : t) : string =
     match tp with
     | Pauli -> "Pauli" 
@@ -26,11 +37,12 @@ module Expr = struct
 
   type t =
     | Var   of Variable.t
+    | Annot of t * Type.t
     | Let   of t * Variable.t * t
     | LExpr of LambdaC.Expr.t
     | Phase of LambdaC.Expr.t * t
     | Prod  of t * t
-    | Pow   of t * int
+    | Pow   of t * LambdaC.Expr.t
     | CasePauli of t * t * t
     | In1   of t * Type.t
     | In2   of Type.t * t
@@ -46,11 +58,13 @@ module Expr = struct
   let rec string_of_t e = 
     match e with
       | Var x -> "Var(" ^ string_of_int x ^ ")"
+      | Annot (t',tau') ->
+        "Annot(" ^ string_of_t t' ^ ", " ^ Type.string_of_t tau' ^ ")"
       | Let (e1, x, e2) -> "Let(" ^ string_of_t e1 ^ ", " ^ string_of_int x ^ ", " ^ string_of_t e2 ^ ")"
       | LExpr le -> "LExpr(" ^ LambdaC.Expr.string_of_t le ^ ")"
       | Phase (a, t) -> "Phase(" ^ LambdaC.Expr.string_of_t a ^ ", " ^ string_of_t t ^ ")"
       | Prod (t1, t2) -> "Prod(" ^ string_of_t t1 ^ ", " ^ string_of_t t2 ^ ")"
-      | Pow (t, n) -> "Pow(" ^ string_of_t t ^ ", " ^ string_of_int n ^ ")"
+      | Pow (t, a) -> "Pow(" ^ string_of_t t ^ ", " ^ LambdaC.Expr.string_of_t a ^ ")"
       | CasePauli (e, t1, t2) -> "CasePauli(" ^ string_of_t e ^ ", " ^ string_of_t t1 ^ ", " ^ string_of_t t2 ^ ")"
       | In1 (t,_tp) -> "In1(" ^ string_of_t t ^ ")"
       | In2 (_,t) -> "In2(" ^ string_of_t t ^ ")"
@@ -67,11 +81,13 @@ module Expr = struct
 let rec pretty_string_of_t e = 
     match e with
       | Var x -> "x" ^ string_of_int x
+      | Annot (e',tau') ->
+        "(" ^ pretty_string_of_t e' ^ " : " ^ Type.string_of_t tau' ^ ")"
       | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
       | LExpr le -> LambdaC.Expr.pretty_string_of_t le
       | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
       | Prod (t1, t2) -> "(" ^ pretty_string_of_t t1 ^ ") * (" ^ pretty_string_of_t t2 ^ ")"
-      | Pow (t, n) -> "(" ^ pretty_string_of_t t ^ ")^(" ^ string_of_int n ^ ")"
+      | Pow (t, a) -> "(" ^ pretty_string_of_t t ^ ")^(" ^ LambdaC.Expr.pretty_string_of_t a ^ ")"
       | CasePauli (e, t1, t2) -> "case " ^ pretty_string_of_t e ^ " of { X -> " ^ pretty_string_of_t t1 ^ " | Z -> " ^ pretty_string_of_t t2 ^ "}"
       | In1 (t,_tp) -> "in1(" ^ pretty_string_of_t t ^ ")"
       | In2 (_,t) -> "in2(" ^ pretty_string_of_t t ^ ")"
@@ -91,6 +107,7 @@ let rec pretty_string_of_t e =
       match e with
       | Var x ->
           if x = from then Var to_ else Var x
+      | Annot(e',tp) -> Annot(rename_var from to_ e', tp)
       | Let (e1, x, e2) ->
           let e1' = rename_var from to_ e1 in
           let e2' = if x = from then e2 else rename_var from to_ e2 in
@@ -101,8 +118,8 @@ let rec pretty_string_of_t e =
           Phase (a, rename_var from to_ t)
       | Prod (t1, t2) ->
           Prod (rename_var from to_ t1, rename_var from to_ t2)
-      | Pow (t, n) ->
-          Pow (rename_var from to_ t, n)
+      | Pow (t, a) ->
+          Pow (rename_var from to_ t, LambdaC.Expr.rename_var from to_ a)
       | CasePauli (e, t1, t2) ->
           CasePauli (rename_var from to_ e, rename_var from to_ t1, rename_var from to_ t2)
       | In1 (t, tp2) ->
@@ -144,7 +161,7 @@ module HOAS = struct
   let vec a = Expr.LExpr a
   let phase a e = Expr.Phase(a, e)
   let ( * ) e1 e2 = Expr.Prod(e1,e2)
-  let pow e n = Expr.Pow(e,n)
+  let pow e a = Expr.Pow(e,a)
   let caseofP e ex ez = Expr.CasePauli(e,ex,ez)
   let in1 e tp2 = Expr.In1 (e,tp2)
   let in2 tp1 e = Expr.In2 (tp1, e)
@@ -171,16 +188,16 @@ module SymplecticForm = struct
   let ccaseP e e1 e2 =
     case e (fun x -> x * e1) (fun z -> z * e2)
 
-  exception TODO
   (* Assumption: the LambdaC.HOAS environment is already aware of all the variables (free or bound) in t *)
   let rec psi_of (t : Expr.t) : LambdaC.Expr.t =
     match t with
     | Var x -> var x
-    | Let(_t1,_x,_t2) -> raise TODO
+    | Annot (t',tp) -> LambdaC.Expr.Annot(psi_of t', Type.ltype_of_t tp)
+    | Let(t1,x,t2) -> LambdaC.Expr.Let(psi_of t1, x, psi_of t2)
     | LExpr a -> a
     | Phase(_,t') -> psi_of t'
     | Prod(t1,t2) -> psi_of t1 + psi_of t2
-    | Pow(t',r) -> const r * psi_of t'
+    | Pow(t',a) -> a * psi_of t'
     | CasePauli(t',tx,tz) ->
       ccaseP (psi_of t')
         (psi_of tx)
@@ -307,6 +324,7 @@ module Eval (S : SCALARS) = struct
     match e with
     | Var x -> 
       Val.pure (try VariableMap.find x ctx with Not_found -> failwith "Unbound variable")
+    | Annot (e',_) -> eval ctx e'
     | Let (e1, x, e2) ->
       let {phase = r1; value = v1} = eval ctx e1 in
       let ctx' = VariableMap.add x v1 ctx in
@@ -315,19 +333,23 @@ module Eval (S : SCALARS) = struct
     | Phase (a,e') ->
       (match LEval.eval ctx a with
       | Const r -> add_phase r (eval ctx e')
-      | _ -> failwith "Expected phase to evaluate to a constant"
+      | _ -> failwith "Expected phase to evaluate to a scalar"
       )
     | Prod (e1,e2) ->
       cfg_prod (eval ctx e1) (eval ctx e2)
 
-    | Pow (e', r) ->
-      cfg_pow (eval ctx e') r
+    | Pow (e', a) ->
+      (match LEval.eval ctx a with
+      | Const r -> cfg_pow (eval ctx e') r
+      | _ -> failwith "Expected power to evaluate to a scalar"
+      )
+      
 
     | CasePauli(e,ex,ez) -> 
       (match eval ctx e with
       | {phase = r; value = LambdaC.Val.Pair (LambdaC.Val.Const rx, LambdaC.Val.Const rz)} ->
-        let cfgx = eval ctx (Expr.Pow(ex, rx)) in
-        let cfgz = eval ctx (Expr.Pow(ez, rz)) in
+        let cfgx = eval ctx (Expr.Pow(ex, LambdaC.Expr.Const rx)) in
+        let cfgz = eval ctx (Expr.Pow(ez, LambdaC.Expr.Const rz)) in
         let k    = case_phase rx rz in
         add_phase (r + k) (cfg_prod cfgz cfgx)
 

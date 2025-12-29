@@ -1,6 +1,7 @@
 module Type : sig
     type t = Pauli | PTensor of t*t
     val ltype_of_t : t -> LambdaC.Type.t
+    val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
 module Variable = LambdaC.Variable
@@ -9,11 +10,12 @@ module Expr :
   sig
     type t =
         Var of Variable.t
+      | Annot of t * Type.t
       | Let of t * Variable.t * t
       | LExpr of LambdaC.Expr.t
       | Phase of LambdaC.Expr.t * t
       | Prod of t * t
-      | Pow of t * int
+      | Pow of t * LambdaC.Expr.t
       | CasePauli of t * t * t
       | In1 of t * Type.t
       | In2 of Type.t * t
@@ -47,7 +49,7 @@ module HOAS : sig
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
-  val pow : Expr.t -> int -> Expr.t
+  val pow : Expr.t -> LambdaC.Expr.t -> Expr.t
   val caseofP : Expr.t -> Expr.t -> Expr.t -> Expr.t
   val in1 : Expr.t -> Type.t -> Expr.t
   val in2 : Type.t -> Expr.t -> Expr.t
