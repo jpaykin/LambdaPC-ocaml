@@ -73,6 +73,10 @@ let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
         )
   )
 
+let bad_example = lambda Pauli (fun q ->
+  caseofP q pauliZ pauliZ
+  )
+
 (* Testing *)
 (*Scalars (Z FIN2)*)
 module S2 = Scalars.Scalars (Scalars.FIN2)

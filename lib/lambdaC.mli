@@ -36,6 +36,7 @@ module Expr : sig
 
   val string_of_t : t -> string
   val pretty_string_of_t : t -> string
+  val subst : Variable.t -> t -> t -> t
   val rename_var : Variable.t -> Variable.t -> t -> t
   val map : (int -> int) -> t -> t
   val update_env : VariableEnvironment.t -> t -> unit
@@ -104,6 +105,7 @@ module TypeInformation : sig
 
   exception TypeError
   val terr : string -> 'a
+  val debug : string -> unit
   val type_of_var : 'a VariableMap.t -> Variable.t -> 'a
   val assert_type : ('a -> string) -> 'a -> 'a -> unit
 

@@ -144,27 +144,29 @@ module Expr = struct
       | Apply (a1, a2) -> pretty_string_of_t a1 ^ " @ " ^ pretty_string_of_t a2
 
 
-    let rec rename_var (from : Variable.t) (to_ : Variable.t) (a : t) : t =
+    (* NOT epxlicitly capture-avoiding, assumes NO reuse of variables *)
+    let rec subst (from : Variable.t) (to_ : t) (a : t) : t =
       match a with
-      | Var x -> if x = from then Var to_ else Var x
+      | Var x -> if x = from then to_ else Var x
       | Let (a1,x,a2) ->
-        Let(rename_var from to_ a1,
+        Let(subst from to_ a1,
             x,
-            if x = from then a2 else rename_var from to_ a2)
+            if x = from then a2 else subst from to_ a2)
       | Zero tp -> Zero tp
-      | Annot (a, tp) -> Annot(rename_var from to_ a, tp)
+      | Annot (a, tp) -> Annot(subst from to_ a, tp)
       | Const c -> Const c
-      | Plus (a1, a2) -> Plus (rename_var from to_ a1, rename_var from to_ a2)
-      | Scale (a1, a2) -> Scale (rename_var from to_ a1, rename_var from to_ a2)
-      | Pair (a1, a2) -> Pair (rename_var from to_ a1, rename_var from to_ a2)
+      | Plus (a1, a2) -> Plus (subst from to_ a1, subst from to_ a2)
+      | Scale (a1, a2) -> Scale (subst from to_ a1, subst from to_ a2)
+      | Pair (a1, a2) -> Pair (subst from to_ a1, subst from to_ a2)
       | Case (scrut, x1, a1, x2, a2) ->
-          let a1' = if x1 = from then a1 else rename_var from to_ a1 in
-          let a2' = if x2 = from then a2 else rename_var from to_ a2 in
-          Case (rename_var from to_ scrut, x1, a1', x2, a2')
+          let a1' = if x1 = from then a1 else subst from to_ a1 in
+          let a2' = if x2 = from then a2 else subst from to_ a2 in
+          Case (subst from to_ scrut, x1, a1', x2, a2')
       | Lambda (x, tp, body) ->
           if x = from then Lambda (x, tp, body)
-          else Lambda (x, tp, rename_var from to_ body)
-      | Apply (a1, a2) -> Apply (rename_var from to_ a1, rename_var from to_ a2)
+          else Lambda (x, tp, subst from to_ body)
+      | Apply (a1, a2) -> Apply (subst from to_ a1, subst from to_ a2)
+    let rename_var x y e = subst x (Var y) e
 
     (* Apply the function f to all constants in a *)
     let rec map (f : int -> int) (a : t) : t =
@@ -432,6 +434,9 @@ module TypeInformation = struct
     print_endline msg;
     flush stdout;
     raise TypeError
+  let debug _msg =
+    (*print_string _msg;*)
+    ()
 
   let type_of_var (gamma : 'a VariableMap.t) (x : Variable.t) : 'a =
     match VariableMap.find_opt x gamma with
