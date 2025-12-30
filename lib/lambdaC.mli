@@ -118,6 +118,8 @@ end
 module Typing : sig
   val string_of_info : (Type.t,Expr.t) TypeInformation.t -> string
   val pp_info : (Type.t,Expr.t) TypeInformation.t -> unit
+  val assert_arrow_type : Type.t -> Type.t * Type.t
+  val assert_sum_type : Type.t -> Type.t * Type.t
   val typecheck' : Type.t VariableMap.t -> Expr.t -> (Type.t,Expr.t) TypeInformation.t
   val typecheck : Expr.t -> (Type.t,Expr.t) TypeInformation.t
 end

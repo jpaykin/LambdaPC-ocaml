@@ -274,75 +274,94 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     plus tp' e1' e2'
   
   (*exception TypeError of (string * Expr.t list * Type.t option)*)
+  (* Assumes that all annotations in a are correct and that the expression is actually well-typed; this function just infers the type from the expression *)
+  let rec get_type (ctx : Type.t VariableMap.t) (a : Expr.t) : Type.t =
+    match a with
+    | Var x -> type_of_var ctx x
+    | Let(a1,x,a2) -> 
+      let tp1 = get_type ctx a1 in
+      get_type (VariableMap.add x tp1 ctx) a2
+    | Annot(_,tp) -> tp
+    | Zero tp -> tp
+    | Plus(a1,_) -> get_type ctx a1
+    | Const _ -> Type.Unit
+    | Scale(_,a2) -> get_type ctx a2
+    | Pair(a1,a2) ->
+      let tp1 = get_type ctx a1 in
+      let tp2 = get_type ctx a2 in
+      Type.Sum(tp1,tp2)
+    | Case(a0,x1,a1,_,_) ->
+      let tp0 = get_type ctx a0 in
+      get_type (VariableMap.add x1 tp0 ctx) a1
+    | Lambda(x,tp1,a') ->
+      let tp2 = get_type (VariableMap.add x tp1 ctx) a' in
+      Type.Arrow(tp1,tp2)
+    | Apply(a1,_) ->
+      let tp0 = get_type ctx a1 in
+      let (_,tp2) = Typing.assert_arrow_type tp0 in
+      tp2
 
-  let rec smtml_of_expr (ctx : Smtml.Symbol.t VariableMap.t) (a : Expr.t) tp =
+  (* TODO: could probably make it so only the typing context is an argument, rather than having both *)
+  let rec smtml_of_expr (tps : Type.t VariableMap.t) (ctx : Smtml.Symbol.t VariableMap.t) (a : Expr.t) tp =
     match a with
     | Var x -> var ctx x
-    | Let (Annot(a1, tp1),x,a2) ->
-        let e1 = smtml_of_expr ctx a1 tp1 in
+    | Let (a1,x,a2) ->
+        let tp1 = get_type tps a1 in
+        let e1 = smtml_of_expr tps ctx a1 tp1 in
         let s = make_symbol tp1 x in
-        let e2 = smtml_of_expr (VariableMap.add x s ctx) a2 tp in
+        let e2 = smtml_of_expr (VariableMap.add x tp1 tps) (VariableMap.add x s ctx) a2 tp in
         Smtml.Expr.let_in [Smtml.Expr.symbol s; e1] e2
-    | Let(_,_,_) ->
-      terr @@ "[smtml_of_expr] Let statement must be annotated\n"
-        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
 
     | Zero tp -> zero tp
-    | Annot (a, _) -> smtml_of_expr ctx a tp
-    | Plus (e1, e2) -> plus tp (smtml_of_expr ctx e1 tp) (smtml_of_expr ctx e2 tp)
+    | Annot (a, _) -> smtml_of_expr tps ctx a tp
+    | Plus (e1, e2) ->
+      plus tp (smtml_of_expr tps ctx e1 tp)
+              (smtml_of_expr tps ctx e2 tp)
     | Const r -> const r
-    | Scale (e1, e2) -> scale tp (smtml_of_expr ctx e1 Type.Unit) (smtml_of_expr ctx e2 tp)
+    | Scale (e1, e2) ->
+      scale tp  (smtml_of_expr tps ctx e1 Type.Unit)
+                (smtml_of_expr tps ctx e2 tp)
     | Pair (e1, e2) ->
-      ( match tp with
-        | Sum (tp1, tp2) ->
-          let e1' = smtml_of_expr ctx e1 tp1 in
-          let e2' = smtml_of_expr ctx e2 tp2 in
-          SMT.pair e1' e2'
-        | _ -> 
-          terr @@ "[smtml_of_expr] Expressions of the form (-,-) must have sum type\n"
-          ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^"\n"
-          ^ "\tType: " ^ LambdaC.Type.string_of_t tp
-      )
+      let (tp1,tp2) = Typing.assert_sum_type tp in
+      let e1' = smtml_of_expr tps ctx e1 tp1 in
+      let e2' = smtml_of_expr tps ctx e2 tp2 in
+      SMT.pair e1' e2'
 
     (* The annotations here are fairly restrictive, try to make this better using the typechecker/type inference *)
-    | Case (Annot (e, Sum(tp1, tp2)), x1, e1, x2, e2) ->
+    | Case (e, x1, e1, x2, e2) ->
+      let tp0 = get_type tps e in
+      let (tp1,tp2) = Typing.assert_sum_type tp0 in
       let s1 = make_symbol tp1 x1 in
       let s2 = make_symbol tp2 x2 in
+      let tps1 = VariableMap.add x1 tp1 tps in
+      let tps2 = VariableMap.add x2 tp2 tps in
       let ctx1 = VariableMap.add x1 s1 ctx in
       let ctx2 = VariableMap.add x2 s2 ctx in
-      let e' = smtml_of_expr ctx e (Sum (tp1, tp2)) in
-      let e1' = smtml_of_expr ctx1 e1 tp in
-      let e2' = smtml_of_expr ctx2 e2 tp in
+      let e' = smtml_of_expr tps ctx e (Sum (tp1, tp2)) in
+      let e1' = smtml_of_expr tps1 ctx1 e1 tp in
+      let e2' = smtml_of_expr tps2 ctx2 e2 tp in
       case tp1 tp2 tp e' s1 e1' s2 e2'
-    | Case (_, _, _, _, _) ->
-      terr @@ "[smtml_of_expr] Guard of case branch must be annotated\n"
-        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
 
     | Lambda (x,_,e') ->
-      ( match tp with
-        | Arrow (tp1, tp2) -> 
-          let s = make_symbol tp1 x in
-          let ctx' = VariableMap.add x s ctx in
-          let e' = smtml_of_expr ctx' e' tp2 in
-          lambda s e'
-        | _ -> 
-          terr @@ "[smtml_of_expr] Expressions of the form Lambda(-,-,-) must have arrow type\n"
-          ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^"\n"
-          ^ "\tType: " ^ LambdaC.Type.string_of_t tp
-      )
+      let (tp1,tp2) = Typing.assert_arrow_type tp in
+      let s = make_symbol tp1 x in
+      let tps' = VariableMap.add x tp1 tps in
+      let ctx' = VariableMap.add x s ctx in
+      let e' = smtml_of_expr tps' ctx' e' tp2 in
+      lambda s e'
 
     (* The annotations here are fairly restrictive, try to make this better *)
-    | Apply (Annot (e1, Arrow(tp1, tp2)), e2) ->
-      apply tp1 tp2 (smtml_of_expr ctx e1 (Arrow(tp1, tp2))) (smtml_of_expr ctx e2 tp1)
-    | Apply(_,_) -> terr @@ "[smtml_of_expr] Application must be annotated\n"
-        ^ "\tExpression: " ^ Expr.pretty_string_of_t a
+    | Apply (e1, e2) ->
+      let tp1 = get_type tps e1 in
+      let (tp_in,tp_out) = Typing.assert_arrow_type tp1 in
+      apply tp_in tp_out (smtml_of_expr tps ctx e1 tp1) (smtml_of_expr tps ctx e2 tp_in)
 
-
+(*
     | _ -> 
       terr @@ "[smtml_of_expr] Could not convert LambdaC expression to Smtml expression\n"
       ^ "\tExpression: " ^ LambdaC.Expr.pretty_string_of_t a ^ "\n"
       ^ "\tType: " ^ LambdaC.Type.string_of_t tp
-
+*)
 
   (*
   let rec free_variables (a : Expr.t) : LambdaC.VariableSet.t =
@@ -411,8 +430,8 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   let equiv (tp : Type.t) (ctx : Type.t VariableMap.t) (a1 : Expr.t) (a2 : Expr.t) : (unit, counterexample) result =
     let ctx0 = make_symbol_map ctx in
 
-    let e1 = smtml_of_expr ctx0 a1 tp in
-    let e2 = smtml_of_expr ctx0 a2 tp in
+    let e1 = smtml_of_expr ctx ctx0 a1 tp in
+    let e2 = smtml_of_expr ctx ctx0 a2 tp in
 
     match SMT.is_equiv (smtml_of_type tp) e1 e2 with
     | Equivalent -> Ok ()
