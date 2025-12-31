@@ -11,13 +11,15 @@ let pauliI : LambdaPC.Expr.t = pauli 0 0
 let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
 
 let id tp = lambda tp (fun q -> q)
-let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
-let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))
-let phasegate = lambda Pauli (fun q ->
-    caseofP q
-      (*X->*) pauliY
-      (*Z->*) pauliZ
-  )
+let hadamard = (*lambda Pauli (fun q -> caseofP q pauliZ pauliX)*)
+  Interface.pc @@
+    "lambda q : Pauli . case q of { X -> Z | Z -> X }"
+let qft = (*lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))*)
+  Interface.pc @@
+    "lambda q : Pauli. case q of { Z -> X^{-1} | X -> Z }"
+let phasegate = 
+  Interface.pc @@
+    "lambda q : Pauli. case q of { X -> Y | Z -> Z }"
 
 
 exception IllFormedType
@@ -61,6 +63,10 @@ let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
       (fun q2 -> in1 q2 tp1)
   )
 
+(* parser is not working right
+let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }"
+*)
+
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
     caseof q
       (fun q1 -> caseofP q1
@@ -72,6 +78,21 @@ let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
                     (*X->*) (in2 Pauli pauliX)
         )
   )
+  (*
+let cnot = 
+  Interface.pc @@ "lambda q : Pauli ** Pauli.
+    case q of {
+      in1 q1 -> case q1 of
+                { X -> in1 X * in2 X
+                | Z -> in1 Z
+                }
+    | in2 q2 -> case q2 of {
+                  X -> in2 X
+                | Z -> in1 Z * in2 Z
+                }
+    }
+  "
+  *)
 
 let bad_example = lambda Pauli (fun q ->
   caseofP q pauliZ pauliZ
@@ -105,7 +126,7 @@ let evalTest () =
   eval (hadamard @ pauliY);
   eval (qft @ pauliY);
   eval (swap Pauli Pauli @ pauliXY);
-  eval (cnot @ pauliXY);
+  (*eval (cnot @ pauliXY);*)
   eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
   eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
 

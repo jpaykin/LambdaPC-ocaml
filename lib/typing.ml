@@ -288,7 +288,6 @@ module SmtLambdaCExpr = struct
           then exists e such that gamma(x)=e
           and ctx' |- e : tau
        *)
-    [@@@warning "-32"]
     let eta ctx : Expr.t VariableMap.t * Type.t VariableMap.t =
 
       let expand x tp (gamma0,ctx0) =
