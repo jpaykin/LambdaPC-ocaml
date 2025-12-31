@@ -177,19 +177,24 @@ module SMT = struct
   open Smtml
 
   let pair e1 e2 = Expr.list [e1; e2]
-  let fst tp e = Expr.unop tp Ty.Unop.Head e
-  let snd tp e = fst tp (Expr.unop Ty.Ty_list Ty.Unop.Tail e)
-  let lambda (x : Symbol.t) (e : Expr.t) = Smtml.Expr.list [Smtml.Expr.symbol x; e]
+  let fst tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 0))
+  let snd tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 1))
+  (*let lambda (x : Symbol.t) (e : Expr.t) = Smtml.Expr.list [Smtml.Expr.symbol x; e]
+  *)
 
-  let let_in x e e' = Expr.let_in [Smtml.Expr.list [x;e]] e'
+  let let_in x e e' =
+    (*Expr.let_in [Expr.list [Expr.symbol x;e]] e'*)
+    Expr.let_in [Expr.app x [e]] e'
+    (*
   let apply in_tp out_tp e1 e2 = 
     (* Assume e1 is a pair corresponding to an smt_lambda, e2 is a value *)
     let x = fst in_tp e1 in
     let e' = snd out_tp e1 in
     let_in x e2 e'
+*)
 
-
-  module Z3 = Smtml.Solver.Batch (Smtml.Z3_mappings)
+  module Solver = Smtml.Solver.Batch (Smtml.Z3_mappings)
+  (*module Solver = Smtml.Solver.Batch (Smtml.Cvc5_mappings)*)
   
   type result =
       Equivalent
@@ -197,16 +202,18 @@ module SMT = struct
     | Unknown
 
   let is_equiv tp e1 e2 : result =
-    let solver = Z3.create () in
+    let solver = Solver.create () in
     let cond = Expr.unop Ty_bool Not (Expr.relop tp Eq e1 e2) in
-    Z3.add solver [ cond ];
-    let result = try Z3.check solver [] with
+    Solver.add solver [ cond ];
+    let result = try Solver.check solver [] with
       Failure msg -> terr ("[is_equiv] " ^ msg)
     in
     match result with
-    | `Sat -> 
-        let model = Z3.model solver |> Option.get in
-        NotEquivalent model
+    | `Sat ->
+        (match Solver.model solver with
+        | Some model -> NotEquivalent model
+        | None -> failwith "??"
+        )
     | `Unsat -> Equivalent
     | `Unknown -> Unknown
 
@@ -271,6 +278,7 @@ module SmtLambdaCExpr = struct
     let string_of_typing_context gamma =
       "[" ^ VariableMap.fold (fun x tp s -> string_of_int x ^ " : " ^ Type.string_of_t tp ^ ", " ^ s) gamma "]\n"
 
+    [@@@warning "-32"]
     let eta gamma a : Type.t VariableMap.t * Expr.t =
       
       debug @@  "Eta expanding: " ^ Expr.pretty_string_of_t a ^ "\n";
@@ -447,19 +455,30 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     Smtml.Expr.symbol @@ VariableMap.find x ctx
   let const (r : int) : Smtml.Expr.t = Smtml.Expr.value (Int (r mod Zd.Dim.dim))
 
+  (*
   let lambda x e = SMT.lambda x e
   let apply tp1 tp2 e1 e2 = SMT.apply (smtml_of_type tp1) (smtml_of_type tp2) e1 e2
+  *)
 
-  let make_symbol tp x = Smtml.Symbol.make (smtml_of_type tp) ("x" ^ string_of_int x)
+  (* typed symbols are for free variables *)
+  let make_typed_symbol tp x =
+    Smtml.Symbol.make (smtml_of_type tp) ("x" ^ string_of_int x)
+  (* untyped symbols are for bound variables *)
+  let make_untyped_symbol x =
+    Smtml.Symbol.make Smtml.Ty.Ty_none ("x" ^ string_of_int x)
+  (*
+  [@@@warning "-32"]
   let fresh_symbol tp = 
     let x = LambdaC.HOAS.fresh () in
     make_symbol tp x
+    *)
 
   let rec zero (tp : Type.t) : Smtml.Expr.t =
     match tp with
     | Unit -> const 0
     | Sum (tp1, tp2) -> SMT.pair (zero tp1) (zero tp2)
-    | Arrow(tp1, tp2) -> lambda (fresh_symbol tp1) (zero tp2)
+    (*| Arrow(tp1, tp2) -> lambda (fresh_symbol tp1) (zero tp2)*)
+    | _ -> terr @@ "SmtLambdaC has assumed no arrow types\n"
 
   let fst tp1 e = SMT.fst (smtml_of_type tp1) e
   let snd tp2 e = SMT.snd (smtml_of_type tp2) e
@@ -471,11 +490,14 @@ module SmtLambdaC (Zd : Z_SIG) = struct
         let e1' = plus tp1 (fst tp1 e1) (fst tp1 e2) in
         let e2' = plus tp2 (snd tp2 e1) (snd tp2 e2) in
         (SMT.pair e1' e2')
+    (*
     | Arrow(tp1, tp2) ->
         let x = fresh_symbol tp1 in
         lambda x 
           (plus tp2 (apply tp1 tp2 e1 (Smtml.Expr.symbol x))
                     (apply tp1 tp2 e2 (Smtml.Expr.symbol x)))
+                    *)
+    | _ -> terr @@ "SmtLambdaC has assumed no arrow types"
 
   let rec scale (tp : Type.t) e e' =
     match tp with
@@ -484,15 +506,18 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       let e1' = scale tp1 e (fst tp1 e') in
       let e2' = scale tp2 e (snd tp2 e') in
       SMT.pair e1' e2'
+    | _ -> terr @@ "SmtLambdaC has assumed no arrow types"
+(*
     | Arrow(tp1, tp2) ->
       let x = fresh_symbol tp1 in
       lambda x (scale tp2 e (apply tp1 tp2 e' (Smtml.Expr.symbol x)))
+      *)
 
   let case tp1 tp2 tp' e x1 e1 x2 e2 =
     let v1 = fst tp1 e in
     let v2 = snd tp2 e in
-    let e1' = SMT.let_in (Smtml.Expr.symbol x1) v1 e1 in
-    let e2' = SMT.let_in (Smtml.Expr.symbol x2) v2 e2 in
+    let e1' = SMT.let_in x1 v1 e1 in
+    let e2' = SMT.let_in x2 v2 e2 in
     plus tp' e1' e2'
   
   (*exception TypeError of (string * Expr.t list * Type.t option)*)
@@ -514,7 +539,9 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       Type.Sum(tp1,tp2)
     | Case(a0,x1,a1,_,_) ->
       let tp0 = get_type ctx a0 in
-      get_type (VariableMap.add x1 tp0 ctx) a1
+      let (tp1,_) = Typing.assert_sum_type tp0 in
+      get_type (VariableMap.add x1 tp1 ctx) a1
+      
     | Lambda(x,tp1,a') ->
       let tp2 = get_type (VariableMap.add x tp1 ctx) a' in
       Type.Arrow(tp1,tp2)
@@ -556,8 +583,8 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     | Case (e, x1, e1, x2, e2) ->
       let tp0 = get_type tps e in
       let (tp1,tp2) = Typing.assert_sum_type tp0 in
-      let s1 = make_symbol tp1 x1 in
-      let s2 = make_symbol tp2 x2 in
+      let s1 = make_untyped_symbol x1 in
+      let s2 = make_untyped_symbol x2 in
       let tps1 = VariableMap.add x1 tp1 tps in
       let tps2 = VariableMap.add x2 tp2 tps in
       let ctx1 = VariableMap.add x1 s1 ctx in
@@ -631,14 +658,15 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   module VariableMap = LambdaC.VariableMap
   (* When we encounter a free variable in a, add a binding to the corresponding symbol *)
   let make_symbol_map (ctx : LambdaC.Type.t VariableMap.t) : Smtml.Symbol.t VariableMap.t =
-    let f x tp = make_symbol tp x in
+    let f x tp = make_typed_symbol tp x in
     VariableMap.mapi f ctx
 
 
   let instantiate model (x : Variable.t) (tp : Type.t) : Val.t =
-    let s = make_symbol tp x in
-    let v0 = Smtml.Model.evaluate model s |> Option.get in
-    value_of_smtml tp v0
+    let s = make_typed_symbol tp x in
+    match Smtml.Model.evaluate model s with
+    | Some v0 -> value_of_smtml tp v0
+    | None -> terr @@ "Could not instantiate model of variable x" ^ string_of_int x ^ "\n"
 
   let counterexample_of_model (ctx : Type.t VariableMap.t) model : Val.t VariableMap.t =
     VariableMap.mapi (instantiate model) ctx
@@ -677,6 +705,16 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     debug "[equiv]\n";
     debug @@ "e1: " ^ Smtml.Expr.to_string e1 ^ "\n";
     debug @@ "e2: " ^ Smtml.Expr.to_string e2 ^ "\n";
+
+    
+    let e1 = Smtml.Rewrite.(rewrite_expr (Symb_map.empty, Symb_map.empty) e1) in
+    let e2 = Smtml.Rewrite.(rewrite_expr (Symb_map.empty, Symb_map.empty) e2) in
+
+
+    debug "[equiv,after rewrite]\n";
+    debug @@ "e1: " ^ Smtml.Expr.to_string e1 ^ "\n";
+    debug @@ "e2: " ^ Smtml.Expr.to_string e2 ^ "\n";
+
 
     match SMT.is_equiv (smtml_of_type tp) e1 e2 with
     | Equivalent ->

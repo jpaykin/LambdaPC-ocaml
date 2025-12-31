@@ -435,7 +435,7 @@ module TypeInformation = struct
     flush stdout;
     raise TypeError
   let debug _msg =
-    (*print_string _msg;*)
+    print_string _msg;
     ()
 
   let type_of_var (gamma : 'a VariableMap.t) (x : Variable.t) : 'a =
