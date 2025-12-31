@@ -263,33 +263,44 @@ module SmtLambdaCExpr = struct
       | _ -> terr @ "Called eta on an unsupported constructor"
 
     *)
-    let rec eta_expand_var env x tp (gamma0,e0) : Type.t VariableMap.t * Expr.t =
+
+    let concat = VariableMap.union (fun _ _ _ -> None)
+    let rec eta_expand_var env tp : Type.t VariableMap.t * Expr.t =
       match tp with
-      | Type.Unit -> (VariableMap.add x tp gamma0, e0)
+      | Type.Unit ->
+          let x = VariableEnvironment.fresh env in
+          (VariableMap.singleton x Type.Unit, Var x)
       | Type.Sum(tp1,tp2) ->
-          let x1 = VariableEnvironment.fresh env in
-          let x2 = VariableEnvironment.fresh env in
-          let e0' = Expr.subst x (Pair (Var x1, Var x2)) e0 in
-          let (gamma1,e1') = eta_expand_var env x1 tp1 (gamma0,e0') in
-          let (gamma2,e2') = eta_expand_var env x2 tp2 (gamma1,e1') in
-          (gamma2, e2')
+          let (gamma1,e1) = eta_expand_var env tp1 in
+          let (gamma2,e2) = eta_expand_var env tp2 in
+          (* gamma1(x1)=e1 such that ctx1 |- e1 :  *)
+          (concat gamma1 gamma2, Pair(e1,e2))
       | _ -> terr "Called eta_expand_var on function type"
 
-    let string_of_typing_context gamma =
-      "[" ^ VariableMap.fold (fun x tp s -> string_of_int x ^ " : " ^ Type.string_of_t tp ^ ", " ^ s) gamma "]\n"
+    let string_of_VariableMap string_of_a gamma =
+      "[" ^ VariableMap.fold (fun x tp s -> string_of_int x ^ " : " ^ string_of_a tp ^ ", " ^ s) gamma "]\n"
+    
 
+    (* The result of eta ctx should be a substitution map gamma
+       and a new typing context ctx' where 
+       1. ctx' only has variables of unit type; and
+       2. if ctx(x)=tau
+          then exists e such that gamma(x)=e
+          and ctx' |- e : tau
+       *)
     [@@@warning "-32"]
-    let eta gamma a : Type.t VariableMap.t * Expr.t =
-      
-      debug @@  "Eta expanding: " ^ Expr.pretty_string_of_t a ^ "\n";
-      HOAS.update_env a;
-      let (gamma',a') = VariableMap.fold (eta_expand_var !HOAS.var_env)
-        gamma (VariableMap.empty, a) in
-      debug @@  "Got eta expanded expression: " ^ Expr.pretty_string_of_t a' ^ "\n";
-      debug @@ "Got new type context: " ^ string_of_typing_context gamma';
-      (gamma',a')
+    let eta ctx : Expr.t VariableMap.t * Type.t VariableMap.t =
 
+      let expand x tp (gamma0,ctx0) =
+        let (ctx',a') = eta_expand_var !HOAS.var_env tp in
+        (VariableMap.add x a' gamma0, concat ctx0 ctx')
+      in
 
+      let (gamma',ctx') = VariableMap.fold expand
+        ctx (VariableMap.empty, VariableMap.empty) in
+      debug @@  "Got substitution map: " ^ string_of_VariableMap Expr.pretty_string_of_t gamma' ^ "\n";
+      debug @@ "Got new type context: " ^ string_of_VariableMap Type.string_of_t ctx';
+      (gamma',ctx')
 
       (* not worrying about linearity,
          normalize into the following form:
@@ -678,35 +689,54 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     rhs : Val.t
   }
 
+  (*
   let string_of_inputs (m : Val.t VariableMap.t) : string =
     let f i v s = "x" ^ string_of_int i ^ " |-> " ^ Val.pretty_string_of_t v ^ "; " ^ s in
     "[" ^ VariableMap.fold f m "]"
+    *)
 
-  let string_of_counterexample counter =
-    "\tInput(s): " ^ string_of_inputs counter.inputs
-    ^ "\n\t"
-    ^ "omega(f i1, f i2) = " ^ Val.pretty_string_of_t counter.lhs ^ "\n\t"
-    ^ "omega(i1, i2) = " ^ Val.pretty_string_of_t counter.rhs
+  let string_of_counterexample counter x1 x2 i1 i2 t1 t2 v1 v2 =
+    let x1_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.Expr.Var x1) in
+    let x2_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.Expr.Var x2) in
+    let fx1 = "f(" ^ x1_str ^ ")" in
+    let fx2 = "f(" ^ x2_str ^ ")" in
+
+    "\t" ^ x1_str ^ " |-> " ^ LambdaPC.Val.string_of_t i1 ^ "\n"
+    ^ "\t" ^ x2_str ^ " |-> " ^ LambdaPC.Val.string_of_t i2 ^ "\n\t"
+    ^ fx1 ^ ":\n\t\t"
+        ^ LambdaPC.Expr.pretty_string_of_t t1 ^ "\n\t\t|->\n\t\t"
+        ^ LambdaPC.Val.string_of_t v1 ^ "\n\t"
+    ^ fx2 ^ ":\n\t\t"
+        ^ LambdaPC.Expr.pretty_string_of_t t2 ^ "\n\t\t|->\n\t\t"
+        ^ LambdaPC.Val.string_of_t v2 ^ "\n"
+    ^ "\n"
+    ^ "\tomega(" ^ fx1 ^ "," ^ fx2 ^ ") |-> " 
+      ^ Val.pretty_string_of_t counter.lhs ^ "\n"
+    ^ "\tomega(" ^ x1_str ^ "," ^ x2_str ^ ") |-> " 
+      ^ Val.pretty_string_of_t counter.rhs ^ "\n"
 
   let equiv (tp : Type.t) (ctx : Type.t VariableMap.t) (a1 : Expr.t) (a2 : Expr.t) : (unit, counterexample) result =
 
-    let (ctx',a1',a2') =
-      (match SmtLambdaCExpr.eta ctx (Pair(a1,a2)) with
-      | (ctx,Pair(a1',a2')) -> (ctx,a1',a2')
-      | _ -> terr @@ "eta did something wrong"
-      ) in
+    let (subst_eta,ctx_eta) = SmtLambdaCExpr.eta ctx in
+    let (a1_eta,a2_eta) = VariableMap.fold
+                      (fun from to_ (a01,a02) ->
+                        (LambdaC.Expr.subst from to_ a01,
+                         LambdaC.Expr.subst from to_ a02
+                        ))
+                      subst_eta (a1,a2) in
+    
+    (* remove all occurrences of Lambda/App and other features *)
+    let a1_normal = SmtLambdaCExpr.normalize a1_eta in
+    let a2_normal = SmtLambdaCExpr.normalize a2_eta in
 
-    let a1'' = SmtLambdaCExpr.normalize a1' in
-    let a2'' = SmtLambdaCExpr.normalize a2' in
-
-    let ctx0 = make_symbol_map ctx' in
-    let e1 = smtml_of_expr ctx' ctx0 a1'' tp in
-    let e2 = smtml_of_expr ctx' ctx0 a2'' tp in
+    let ctx_symb = make_symbol_map ctx_eta in
+    let e1 = smtml_of_expr ctx_eta ctx_symb a1_normal tp in
+    let e2 = smtml_of_expr ctx_eta ctx_symb a2_normal tp in
     debug "[equiv]\n";
     debug @@ "e1: " ^ Smtml.Expr.to_string e1 ^ "\n";
     debug @@ "e2: " ^ Smtml.Expr.to_string e2 ^ "\n";
 
-    
+    (* inline let statements *)
     let e1 = Smtml.Rewrite.(rewrite_expr (Symb_map.empty, Symb_map.empty) e1) in
     let e2 = Smtml.Rewrite.(rewrite_expr (Symb_map.empty, Symb_map.empty) e2) in
 
@@ -721,12 +751,13 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       debug "IS EQUIVALENT\n";
       Ok ()
     | NotEquivalent model ->
-      (* TODO: this counterexample finder is no longer working; need to combine it with the eta expansion idea above. *)
-        let counter = counterexample_of_model ctx model in
+        let counter_eta = counterexample_of_model ctx_eta model in
+        let counter = VariableMap.map (EvalZd.eval counter_eta) subst_eta in
+
         let v1 = EvalZd.eval counter a1 in
         let v2 = EvalZd.eval counter a2 in
       Error 
-        { inputs = counterexample_of_model ctx model;
+        { inputs = counter;
         lhs = v1;
         rhs = v2
         }
@@ -741,6 +772,7 @@ end
 
 module SmtLambdaPC (S : SCALARS) = struct
   module SmtC = SmtLambdaC (S.Zd)
+  module EvalZd = Eval(S)
 
   let symplectic_check in_tp out_tp (f : LambdaPC.Expr.pc) : unit =
     let (Lam(x,_,t)) = f in
@@ -766,15 +798,23 @@ module SmtLambdaPC (S : SCALARS) = struct
         match SmtC.equiv LambdaC.Type.Unit ctx lhs rhs with
         | Ok _ -> ()
         | Error counter ->
-          terr @@ "TYPE ERROR\nSymplectomorphism check failed with the following counterexample:\n" ^ SmtC.string_of_counterexample counter
+          let i1 = EvalZd.eval counter.inputs (Var x1) in
+          let i2 = EvalZd.eval counter.inputs (Var x2) in
+          let t1 = LambdaPC.Expr.rename_var x x1 t in
+          let t2 = LambdaPC.Expr.rename_var x x2 t in
+          let v1 = EvalZd.eval counter.inputs t1 in
+          let v2 = EvalZd.eval counter.inputs t2 in
+
+          terr @@ "Symplectomorphism check failed with the following counterexample:\n"
+            ^ SmtC.string_of_counterexample counter x1 x2 i1 i2 t1 t2 v1 v2
 
   let typecheck (pc : LambdaPC.Expr.pc) : Type.t * Type.t =
       let info = LinearityTyping.linearity_check_pc pc in
       print_string @@ "Passed linearity check\n";
+      print_string @@ LinearityTyping.string_of_pc_info info;
       let (in_tp,out_tp) = info.tp in
       symplectic_check in_tp out_tp info.expr;
       print_string @@ "Passed symplectomorphism check\n";
-      print_string @@ LinearityTyping.string_of_pc_info info;
-      print_string "\n\n";
+      print_string "TYPECHECK PASSED\n\n";
       (in_tp, out_tp)
 end

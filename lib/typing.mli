@@ -42,11 +42,11 @@ module SmtLambdaC :
     val smtml_of_expr : Type.t VariableMap.t -> Smtml.Symbol.t VariableMap.t -> Expr.t -> Type.t -> Smtml.Expr.t
     val value_of_smtml : Type.t -> Smtml.Value.t -> Val.t
 
-    type counterexample = {
-      inputs : Val.t VariableMap.t;
-      lhs : Val.t;
-      rhs : Val.t
-    }
+  type counterexample = {
+    inputs : Val.t VariableMap.t;
+    lhs : Val.t;
+    rhs : Val.t
+  }
 
     val equiv : Type.t -> Type.t VariableMap.t -> Expr.t -> Expr.t -> (unit, counterexample) result
   end
