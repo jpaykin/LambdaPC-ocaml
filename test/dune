@@ -1,4 +1,3 @@
 (test
  (name test_all)
- (libraries alcotest pCLib)
-)
+ (libraries alcotest pCLib))

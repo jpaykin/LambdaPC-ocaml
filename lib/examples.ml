@@ -94,7 +94,7 @@ let cnot =
   "
   *)
 
-let bad_example = lambda Pauli (fun q ->
+let _bad_example = lambda Pauli (fun q ->
   caseofP q pauliZ pauliZ
   )
 
