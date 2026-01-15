@@ -84,7 +84,9 @@ let rec pretty_string_of_t e =
       | Annot (e',tau') ->
         "(" ^ pretty_string_of_t e' ^ " : " ^ Type.string_of_t tau' ^ ")"
       | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
-      | LExpr le -> LambdaC.Expr.pretty_string_of_t le
+      | LExpr le ->
+        "Delta" ^
+        LambdaC.Expr.pretty_string_of_t le
       | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
       | Prod (t1, t2) -> "(" ^ pretty_string_of_t t1 ^ ") * (" ^ pretty_string_of_t t2 ^ ")"
       | Pow (t, a) -> "(" ^ pretty_string_of_t t ^ ")^(" ^ LambdaC.Expr.pretty_string_of_t a ^ ")"
