@@ -463,7 +463,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   let var (ctx : Smtml.Symbol.t VariableMap.t) (x : LambdaC.Variable.t) : Smtml.Expr.t =
     Smtml.Expr.symbol @@ VariableMap.find x ctx
-  let const (r : int) : Smtml.Expr.t = Smtml.Expr.value (Int (r mod Zd.Dim.dim))
+  let const (r : int) : Smtml.Expr.t = modd (Smtml.Expr.value (Int r))
 
   (*
   let lambda x e = SMT.lambda x e
@@ -654,7 +654,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   let rec value_of_smtml (tp : Type.t) (v : Smtml.Value.t) : Val.t =
     match tp, v with
-    | Unit, Int r -> Val.Const r
+    | Unit, Int r -> Val.Const (Zd.normalize r)
     | Sum (tp1,tp2), List [v1; v2] -> Val.Pair (value_of_smtml tp1 v1, value_of_smtml tp2 v2)
     | Arrow (_, _), List [_;_] -> 
       terr @@ "[smtml] Cannot coerce smtml value to LambdaC value of function type\n"

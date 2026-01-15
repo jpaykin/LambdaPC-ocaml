@@ -3,14 +3,17 @@
 include LambdaPC.HOAS
 
 module S2 = Scalars.Scalars (Scalars.FIN2)
+module LEval2 = LambdaC.Eval(S2.Zd)
 module Eval2 = LambdaPC.Eval(S2)
 module Typing2 = Typing.SmtLambdaPC(S2)
 
 module S3 = Scalars.Scalars (Scalars.FIN3)
+module LEval3 = LambdaC.Eval(S3.Zd)
 module Eval3 = LambdaPC.Eval(S3)
 module Typing3 = Typing.SmtLambdaPC(S3)
 
 module S4 = Scalars.Scalars (Scalars.FIN4)
+module LEval4 = LambdaC.Eval(S4.Zd)
 module Eval4 = LambdaPC.Eval(S4)
 module Typing4 = Typing.SmtLambdaPC(S4)
 
@@ -42,6 +45,23 @@ let eval e =
   in
   let result = eval_closed e in
   print_endline (LambdaPC.Val.string_of_t result ^ "\n")
+
+
+let leval e =
+  print_endline (LambdaC.Expr.pretty_string_of_t e ^ "\n->*\n");
+  let eval_closed = match !dim with
+             | 2 -> LEval2.eval LambdaC.VariableMap.empty
+             | 3 -> LEval3.eval LambdaC.VariableMap.empty
+             | 4 -> LEval4.eval LambdaC.VariableMap.empty
+             | d -> failwith @@ "Please add evaluation module for dimension " ^ string_of_int d ^ "\n"
+  in
+  let result = eval_closed e in
+  print_endline (LambdaC.Val.string_of_t result ^ "\n")
+
+  
+
+let omega tp e1 e2 =
+  leval LambdaPC.SymplecticForm.(omega tp (psi_of e1) (psi_of e2))
 
 let typecheck pc =
   let typecheck_d = match !dim with

@@ -85,7 +85,6 @@ let rec pretty_string_of_t e =
         "(" ^ pretty_string_of_t e' ^ " : " ^ Type.string_of_t tau' ^ ")"
       | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
       | LExpr le ->
-        "Delta" ^
         LambdaC.Expr.pretty_string_of_t le
       | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
       | Prod (t1, t2) -> "(" ^ pretty_string_of_t t1 ^ ") * (" ^ pretty_string_of_t t2 ^ ")"
@@ -220,7 +219,7 @@ module SymplecticForm = struct
     ccaseP a1
       (ccaseP a2 
         (*t1=[1,0],t2=[1,0]*) (const 0)
-        (*t1=[1,0],t2=[0,1]*) (const 1)
+        (*t1=[1,0],t2=[0,1]*) (const (-1))
       )
       (ccaseP a2 
         (*t1=[0,1],t2=[1,0]*) (const 1)
@@ -385,4 +384,5 @@ module Eval (S : SCALARS) = struct
     | Force (Suspend e') -> eval (VariableMap.empty) e'
 
   let evalClosed e = eval VariableMap.empty e
+
 end
