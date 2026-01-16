@@ -5,4 +5,7 @@
  (modules lexer))
 
 (library
- (name pCLib))
+ (name pCLib)
+ (modules :standard)
+ (libraries smtml)
+)
