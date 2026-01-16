@@ -2,15 +2,16 @@
 
 This resository contains a work-in-progress implementation of LambdaPC, described in the following paper:
 
-> Jennifer Paykin and Sam Winnick. Qudit Quantum Programming with Projective Cliffords. 2026. https://arxiv.org/abs/2407.16801
+> Jennifer Paykin and Sam Winnick. Qudit Quantum Programming with Projective Cliffords. POPL 2026. https://arxiv.org/abs/2407.16801
 
 The structure of the library is as follows:
 
-* `lib/lambdaPC` - the top-level LambdaPC language, including evaluation
-* `lib/lambdaC` - the linear lambdaC language
-* `lib/scalars` - operations in the rings Z/Zd
+* `lib/interface` - top-level interface to LambdaPC programs via a simple parser and typechecker
 * `lib/examples` - example LambdaPC programs
-* `lib/interface` - interface to LambdaPC programs via a simple parser
+* `lib/lambdaPC` - the top-level LambdaPC language, including evaluation
+* `lib/typing` - type-checker for LambdaPC
+* `lib/lambdaC` - the linear lambdaC language
+* `lib/scalars` - operations on rings Z/Zd
 
 
 ### Syntax
@@ -47,7 +48,7 @@ Pauli expressions:
         | in1{tp} t | in2{tp} t                         (inject)
         | case t of {in1 x1 -> t1 | in2 x2 -> t2}       (multi-qubit case analysis)
         | c @ t                                         (apply a projective Clifford)
-    c ::= lambda x : tau. t                                ( projective Clifford expressions )
+    c ::= lambda x : tau. t                             (projective Clifford expressions)
 ```
 
 ### Use
@@ -55,17 +56,23 @@ Pauli expressions:
 Here is an example interaction with PCLib:
 
 ```
-    open PCLib.Interface
-    let had = pc "lambda q : Pauli. case q of {X -> Z | Z -> X}"
-    eval (had @ parse "Y")
+    # open PCLib.Interface;;
+    # set_dimension 4 (* default is 2 *);;
+    # let qft = pc "lambda q : Pauli. case q of { Z -> X^{-1} | X -> Z }"
+    # typecheck qft;;
+    # eval (qft @ parse "Y");;
 ```
 
 To interact with PCLib through the parser, use `open PCLib.Interface`. This exposes several important functions:
 
+* `set_dimension : int -> unit` - Sets the dimension to be used by the below functions. Dimension must be >1. Currently only instantiated for dimensions 2,3,4, but could easily be expanded.
 * `parse : string -> LambdaPC.Expr.t` - parse a string into a Pauli expression
 * `pc : string -> LambdaPC.Expr.pc` - parse a string into a projective Clifford function
-* `(*) : LambdaPC.Expr.pc -> LambdaPC.Expr.t -> LambdaPC.Expr.t` - apply a projective Clifford to a Pauli expression
+* `(@) : LambdaPC.Expr.pc -> LambdaPC.Expr.t -> LambdaPC.Expr.t` - apply a projective Clifford to a Pauli expression
 * `eval : LambdaPC.Expr.t -> unit` - pretty-print the input expression, evaluate it to a value, and then pretty-print the result
+* `leval : LambdaC.Expr.t -> unit` - pretty-print the input expression, evaluate it to a value, and then pretty-print the result
+* `typecheck : LambdaPC.Expr.pc -> unit` - typecheck the input projective Clifford and prints the result.
+* `omega : LambdaPC.Type.t -> LambdaPC.Expr.t -> LambdaPC.Expr.t -> unit` - evaluates omega applied to the psi components of the input LambdaPC expressions
 
 ## Installation
 
