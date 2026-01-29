@@ -8,6 +8,7 @@ module VariableMap = LambdaC.VariableMap
 module Expr :
   sig
     type t =
+    (* these are mutually recursive defintion *)
         Var of Variable.t
       | Let of t * Variable.t * t
       | LExpr of LambdaC.Expr.t
