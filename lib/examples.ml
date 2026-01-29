@@ -63,9 +63,7 @@ let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
       (fun q2 -> in1 q2 tp1)
   )
 
-(* parser is not working right
 let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }"
-*)
 
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
     caseof q
@@ -78,6 +76,18 @@ let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
                     (*X->*) (in2 Pauli pauliX)
         )
   )
+
+let cnot1 = Interface.pc @@ "lambda q : Pauli ** Pauli .
+    case q of
+    { in1 q1 -> case q1 of 
+                { X -> [X, X]
+                | Z -> [Z, I]
+                }
+    | in2 q2 -> case q2 of 
+                { X -> [I, X]
+                | Z -> [Z, Z]
+                }
+    }"
   (*
 let cnot = 
   Interface.pc @@ "lambda q : Pauli ** Pauli.
@@ -126,7 +136,8 @@ let evalTest () =
   eval (hadamard @ pauliY);
   eval (qft @ pauliY);
   eval (swap Pauli Pauli @ pauliXY);
-  (*eval (cnot @ pauliXY);*)
+  eval (swap2 @ pauliXY);
+  eval (cnot1 @ pauliXY);
   eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
   eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
 

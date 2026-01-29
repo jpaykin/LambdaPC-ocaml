@@ -93,6 +93,7 @@ ptype:
         { LambdaPC.Type.PTensor (tp1,tp2) }
     | LPAREN tp=ptype RPAREN
       { tp }
+    | { LambdaPC.Type.Pauli } (* Infer type? *)
 
 ltype:
     | UNIT
@@ -156,9 +157,9 @@ expr:
   | CASE t=expr OF LCURLY ZCONST ARROW tz=expr MID XCONST ARROW tx=expr RCURLY
     { Expr.CasePauli (t, tx, tz) }
 
-  | IN1 LCURLY tp=ptype RCURLY t=expr
+  | IN1 tp=ptype t=expr
     { Expr.In1 (t, tp) }
-  | IN2 LCURLY tp=ptype RCURLY t=expr
+  | IN2 tp=ptype t=expr
     { Expr.In2 (tp, t) }
   | CASE t=expr OF LCURLY IN1 x1=ID ARROW t1=expr
                    MID    IN2 x2=ID ARROW t2=expr RCURLY

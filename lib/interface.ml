@@ -1,5 +1,4 @@
 (* top-level interface for interacting with LambdaPC via the interpreter or other *)
-
 include LambdaPC.HOAS
 
 module S2 = Scalars.Scalars (Scalars.FIN2)
@@ -20,14 +19,41 @@ module Typing4 = Typing.SmtLambdaPC(S4)
 let dim = ref 2
 let set_dimension d = dim := d
 
+exception Parse_error of string * string
+
+let set_file (lb : Lexing.lexbuf) (file : string) : unit =
+  let p = lb.lex_curr_p in
+  lb.lex_curr_p <- { p with pos_fname = file }
+
+let parse_with
+  (file : string)
+  (lb : Lexing.lexbuf)
+  (entry : Lexing.lexbuf -> 'a)
+  : 'a
+=
+  set_file lb file;
+  try entry lb with
+  | Lexer.LexError (msg, sp, ep) ->
+      raise (Parse_error (Util.loc_string_of_positions sp ep, "Lexing error: " ^ msg))
+  | Parser.Error ->
+      let sp, ep = Util.get_start_end lb in
+      let near =
+        let lx = Lexing.lexeme lb in
+        if lx = "" then "end of input" else Printf.sprintf "%S" lx
+      in
+      raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
+
 let parse (s : string) : LambdaPC.Expr.t =
   let lexbuf = Lexing.from_string s in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
+  parse_with "<stdin>" lexbuf (fun lb -> Parser.prog Lexer.read lb)
+  (*let ast = Parser.prog Lexer.read lexbuf in
+  ast*)
+
 let pc (s : string) : LambdaPC.Expr.pc =
   let lexbuf = Lexing.from_string s in
-  let ast = Parser.pcprog Lexer.read lexbuf in
-  ast
+  parse_with "<stdin>" lexbuf (fun lb -> Parser.pcprog Lexer.read lb)
+  (* let ast = Parser.pcprog Lexer.read lexbuf in *)
+  (* ast *)
 
 let parseFromFile (filename : string) : LambdaPC.Expr.t =
   let f = In_channel.open_bin filename in
