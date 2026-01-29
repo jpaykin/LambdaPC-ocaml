@@ -88,14 +88,14 @@ let suite =
 
       test_case "Testing function application" `Quick (fun () ->
         TestEval2.test_eval
-          HOAS.(lambda Unit (fun x -> var x + var x) @ (const 3))
+          HOAS.(lambda Unit (fun x -> x + x) @ (const 3))
           HOAS.(const 6)
         );
 
       test_case "Testing case evaluation" `Quick (fun () ->
         TestEval2.test_eval
           HOAS.(case (Expr.Pair(const 1, const 0))
-            (fun x1 -> var x1)
+            (fun x1 -> x1)
             (fun _ -> const 11)
           )
           HOAS.(const 12)

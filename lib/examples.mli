@@ -43,7 +43,7 @@ val ntensor : int -> LambdaPC.Type.t
 val in_n_i : int -> int -> LambdaPC.Expr.t -> LambdaPC.Expr.t
 val match_in_i :
   int ->
-  LambdaPC.Expr.t -> (int -> int -> LambdaPC.Expr.t) -> LambdaPC.Expr.t
+  LambdaPC.Expr.t -> (int -> LambdaPC.Expr.t -> LambdaPC.Expr.t) -> LambdaPC.Expr.t
 val ptensor :
   LambdaPC.Type.t ->
   LambdaPC.Type.t -> LambdaPC.Expr.t -> LambdaPC.Expr.t -> LambdaPC.Expr.t

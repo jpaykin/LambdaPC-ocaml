@@ -145,11 +145,15 @@ expr:
     { Expr.Prod (t1, t2) }
   
   | t=expr CARROT n=INT
-    { Expr.Pow (t, n) }
+    { Expr.Pow (t, LambdaC.Expr.Const n) }
   | t=expr CARROT LCURLY n=INT RCURLY
-    { Expr.Pow (t, n) }
+    { Expr.Pow (t, LambdaC.Expr.Const n) }
+  | t=expr CARROT LCURLY a=lexpr RCURLY
+    { Expr.Pow (t, a) }
 
   | CASE t=expr OF LCURLY XCONST ARROW tx=expr MID ZCONST ARROW tz=expr RCURLY
+    { Expr.CasePauli (t, tx, tz) }
+  | CASE t=expr OF LCURLY ZCONST ARROW tz=expr MID XCONST ARROW tx=expr RCURLY
     { Expr.CasePauli (t, tx, tz) }
 
   | IN1 LCURLY tp=ptype RCURLY t=expr
@@ -158,6 +162,9 @@ expr:
     { Expr.In2 (tp, t) }
   | CASE t=expr OF LCURLY IN1 x1=ID ARROW t1=expr
                    MID    IN2 x2=ID ARROW t2=expr RCURLY
+    { Expr.CasePTensor (t, x1, t1, x2, t2) }
+  | CASE t=expr OF LCURLY IN2 x2=ID ARROW t2=expr
+                   MID    IN1 x1=ID ARROW t1=expr RCURLY
     { Expr.CasePTensor (t, x1, t1, x2, t2) }
 
   | f=pclif AT t=expr

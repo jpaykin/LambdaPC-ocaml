@@ -1,6 +1,7 @@
 module Type : sig
     type t = Pauli | PTensor of t*t
     val ltype_of_t : t -> LambdaC.Type.t
+    val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
 module Variable = LambdaC.Variable
@@ -10,11 +11,12 @@ module Expr :
     type t =
     (* these are mutually recursive defintion *)
         Var of Variable.t
+      | Annot of t * Type.t
       | Let of t * Variable.t * t
       | LExpr of LambdaC.Expr.t
       | Phase of LambdaC.Expr.t * t
       | Prod of t * t
-      | Pow of t * int
+      | Pow of t * LambdaC.Expr.t
       | CasePauli of t * t * t
       | In1 of t * Type.t
       | In2 of Type.t * t
@@ -44,19 +46,26 @@ module HOAS : sig
   val fresh : unit -> Variable.t
 
   val var : Variable.t -> Expr.t
-  val letin : Expr.t -> (Variable.t -> Expr.t) -> Expr.t
+  val letin : Expr.t -> (Expr.t -> Expr.t) -> Expr.t
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
-  val pow : Expr.t -> int -> Expr.t
+  val pow : Expr.t -> LambdaC.Expr.t -> Expr.t
   val caseofP : Expr.t -> Expr.t -> Expr.t -> Expr.t
   val in1 : Expr.t -> Type.t -> Expr.t
   val in2 : Type.t -> Expr.t -> Expr.t
-  val caseof : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
-  val lambda : Type.t -> (Variable.t -> Expr.t) -> Expr.pc
+  val caseof : Expr.t -> (Expr.t -> Expr.t) -> (Expr.t -> Expr.t) -> Expr.t
+  val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.pc
   val (@) : Expr.pc -> Expr.t -> Expr.t
   val suspend : Expr.t -> Expr.p
   val force : Expr.p -> Expr.t
+end
+
+module SymplecticForm : sig
+  val psi_of : Expr.t -> LambdaC.Expr.t
+  val psi_of_pc : Expr.pc -> LambdaC.Expr.t
+  val ccaseP : LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t
+  val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
 
 module PhaseEnvironment : (Zd : Scalars.Z_SIG) ->

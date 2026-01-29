@@ -7,6 +7,10 @@ end
 
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
+module VariableSet : sig
+  include Set.S with type elt = Variable.t
+  val exists_usage_subset : t -> (t -> bool) -> bool
+end
 
 
 module VariableEnvironment : sig
@@ -19,7 +23,9 @@ end
 module Expr : sig
   type t =
       Var of Variable.t
+    | Let of t * Variable.t * t
     | Zero of Type.t
+    | Annot of t * Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
@@ -30,6 +36,7 @@ module Expr : sig
 
   val string_of_t : t -> string
   val pretty_string_of_t : t -> string
+  val subst : Variable.t -> t -> t -> t
   val rename_var : Variable.t -> Variable.t -> t -> t
   val map : (int -> int) -> t -> t
   val update_env : VariableEnvironment.t -> t -> unit
@@ -42,15 +49,20 @@ module HOAS : sig
   val var_env : VariableEnvironment.t ref
   val set_variable_environment : VariableEnvironment.t -> unit
   val fresh : unit -> Variable.t
+  val update_env : Expr.t -> unit
 
   val var : Variable.t -> Expr.t
   val zero : Type.t -> Expr.t
   val (+) : Expr.t -> Expr.t -> Expr.t
   val const : int -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
-  val case : Expr.t -> (Variable.t -> Expr.t) -> (Variable.t -> Expr.t) -> Expr.t
-  val lambda : Type.t -> (Variable.t -> Expr.t) -> Expr.t
-  val (@) : Expr.t -> Expr.t -> Expr.t    
+  val case : Expr.t -> (Expr.t -> Expr.t) -> (Expr.t -> Expr.t) -> Expr.t
+  val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.t
+  val (@) : Expr.t -> Expr.t -> Expr.t
+  val pair : Expr.t -> Expr.t -> Expr.t
+
+
+  (* Helper functions for performing the symplectic form *)
 end
 
 module Val : sig
@@ -79,14 +91,37 @@ module Eval : functor (Zd : Z_SIG) -> sig
 
 end
 
-module Typing : sig
-  type typing_context = Type.t VariableMap.t
-  exception TypeError of string
-  val type_of : typing_context -> Expr.t -> Type.t
+module TypeInformation : sig
+  type usage_relation = VariableSet.t -> VariableSet.t -> bool
+
+  type ('tp, 'expr) t = {
+    usage : usage_relation;
+    expr : 'expr;
+    tp : 'tp;
+  }
+
+  val string_of_info : ('tp -> string) -> ('expr -> string) -> ('tp,'expr) t -> string
+  val pp_info : ('tp -> string) -> ('expr -> string) -> ('tp,'expr) t -> unit
+
+  exception TypeError
+  val terr : string -> 'a
+  val debug : string -> unit
+  val type_of_var : 'a VariableMap.t -> Variable.t -> 'a
+  val assert_type : ('a -> string) -> 'a -> 'a -> unit
+
+  val var_usage : Variable.t -> usage_relation
+  val same_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_with : ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_branch : ('tp0,'expr0) t -> Variable.t -> ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
 end
 
 
-(* module Expr_Functor (A : Z_SIG) (B : Z_SIG) : sig
-  val map_expr : (A.t -> B.t) -> Expr.t -> Expr.t
-  val map_lval : (A.t -> B.t) -> Val.t -> Val.t
-end *)
+module Typing : sig
+  val string_of_info : (Type.t,Expr.t) TypeInformation.t -> string
+  val pp_info : (Type.t,Expr.t) TypeInformation.t -> unit
+  val assert_arrow_type : Type.t -> Type.t * Type.t
+  val assert_sum_type : Type.t -> Type.t * Type.t
+  val typecheck' : Type.t VariableMap.t -> Expr.t -> (Type.t,Expr.t) TypeInformation.t
+  val typecheck : Expr.t -> (Type.t,Expr.t) TypeInformation.t
+end

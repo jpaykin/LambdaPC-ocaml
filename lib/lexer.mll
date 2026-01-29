@@ -52,6 +52,7 @@ rule read =
   | "[" {LSQUARE}
   | "]" {RSQUARE}
 
-  | id { ID (String.hash (Lexing.lexeme lexbuf)) }
   | int { INT (int_of_string (Lexing.lexeme lexbuf)) }
+  | id { ID (String.hash (Lexing.lexeme lexbuf)) }
+
   | eof { EOF }
