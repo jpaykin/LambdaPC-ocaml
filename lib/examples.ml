@@ -63,7 +63,7 @@ let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
       (fun q2 -> in1 q2 tp1)
   )
 
-let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }"
+(* let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }" *)
 
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
     caseof q
@@ -136,8 +136,7 @@ let evalTest () =
   eval (hadamard @ pauliY);
   eval (qft @ pauliY);
   eval (swap Pauli Pauli @ pauliXY);
-  eval (swap2 @ pauliXY);
-  eval (cnot1 @ pauliXY);
+  (* eval (cnot1 @ pauliXY); *)
   eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
   eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
 

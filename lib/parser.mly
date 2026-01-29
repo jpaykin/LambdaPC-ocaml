@@ -93,7 +93,7 @@ ptype:
         { LambdaPC.Type.PTensor (tp1,tp2) }
     | LPAREN tp=ptype RPAREN
       { tp }
-    | { LambdaPC.Type.Pauli } (* Infer type? *)
+    (* | { LambdaPC.Type.Pauli } (* Infer type? *) TODO: Come back to this*)
 
 ltype:
     | UNIT
