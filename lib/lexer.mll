@@ -60,7 +60,7 @@ rule read =
   | "]" {RSQUARE}
 
   | int { INT (int_of_string (Lexing.lexeme lexbuf)) }
-  | id { ID (String.hash (Lexing.lexeme lexbuf)) }
+  | id { ID (Lexing.lexeme lexbuf) }
 
   | eof { EOF }
 

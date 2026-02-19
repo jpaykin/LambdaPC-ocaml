@@ -1,0 +1,19 @@
+type qubit = int
+
+type gate =
+  | H of qubit
+  | S of qubit
+  | Sdg of qubit
+  | X of qubit
+  | Z of qubit
+  | CNOT of qubit * qubit
+
+type t = gate list
+
+val empty : t
+val singleton : gate -> t
+val append : t -> t -> t
+val invert_gate : gate -> gate
+val dagger : t -> t
+val to_string_gate : gate -> string
+val to_string : t -> string
