@@ -43,19 +43,19 @@ let parse_with
       in
       raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
 
-let parse (s : string) : LambdaPC.Expr.t =
+let parse (s : string) : Named_ast.LambdaPC_Surface.expr =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb -> Parser.prog Lexer.read lb)
   (*let ast = Parser.prog Lexer.read lexbuf in
   ast*)
 
-let pc (s : string) : LambdaPC.Expr.pc =
+let pc (s : string) : Named_ast.LambdaPC_Surface.pc =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb -> Parser.pcprog Lexer.read lb)
   (* let ast = Parser.pcprog Lexer.read lexbuf in *)
   (* ast *)
 
-let parseFromFile (filename : string) : LambdaPC.Expr.t =
+let parseFromFile (filename : string) : Named_ast.LambdaPC_Surface.expr =
   let f = In_channel.open_bin filename in
   let lexbuf = Lexing.from_channel f in
   let ast = Parser.prog Lexer.read lexbuf in
@@ -84,7 +84,6 @@ let leval e =
   let result = eval_closed e in
   print_endline (LambdaC.Val.string_of_t result ^ "\n")
 
-  
 
 let omega tp e1 e2 =
   leval LambdaPC.SymplecticForm.(omega tp (psi_of e1) (psi_of e2))

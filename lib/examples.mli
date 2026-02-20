@@ -33,7 +33,7 @@ val id : LambdaPC.Type.t -> LambdaPC.Expr.pc
 val hadamard : LambdaPC.Expr.pc
 val qft : LambdaPC.Expr.pc
 val phasegate : LambdaPC.Expr.pc
-
+(**)
 (* Length-indexed Pauli types *)
 
 exception IllFormedType

@@ -11,15 +11,15 @@ let pauliI : LambdaPC.Expr.t = pauli 0 0
 let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
 
 let id tp = lambda tp (fun q -> q)
-let hadamard = (*lambda Pauli (fun q -> caseofP q pauliZ pauliX)*)
-  Interface.pc @@
-    "lambda q : Pauli . case q of { X -> Z | Z -> X }"
-let qft = (*lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))*)
-  Interface.pc @@
-    "lambda q : Pauli. case q of { Z -> X^{-1} | X -> Z }"
-let phasegate = 
-  Interface.pc @@
-    "lambda q : Pauli. case q of { X -> Y | Z -> Z }"
+let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
+(*   Interface.pc @@ *)
+(*     "lambda q : Pauli . case q of { X -> Z | Z -> X }" *)
+let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))
+  (* Interface.pc @@ *)
+  (*   "lambda q : Pauli. case q of { Z -> X^{-1} | X -> Z }" *)
+let phasegate = lambda Pauli (fun q -> caseofP q pauliX pauliY)
+  (* Interface.pc @@ *)
+  (*   "lambda q : Pauli. case q of { X -> Y | Z -> Z }" *)
 
 
 exception IllFormedType
@@ -47,7 +47,6 @@ let rec match_in_i (n : int) (t : LambdaPC.Expr.t)
     if n = 1
     then letin t (f 0)
     else caseof t (fun q0 -> f 0 q0) (fun q' -> match_in_i (n-1) q' inc_f)
-
 
 let ptensor tp1 tp2 t1 t2 =
   (in1 t1 tp2) * (in2 tp1 t2)
@@ -77,17 +76,17 @@ let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
         )
   )
 
-let cnot1 = Interface.pc @@ "lambda q : Pauli ** Pauli .
-    case q of
-    { in1 q1 -> case q1 of 
-                { X -> [X, X]
-                | Z -> [Z, I]
-                }
-    | in2 q2 -> case q2 of 
-                { X -> [I, X]
-                | Z -> [Z, Z]
-                }
-    }"
+(* let cnot1 = Interface.pc @@ "lambda q : Pauli ** Pauli . *)
+(*     case q of *)
+(*     { in1 q1 -> case q1 of  *)
+(*                 { X -> [X, X] *)
+(*                 | Z -> [Z, I] *)
+(*                 } *)
+(*     | in2 q2 -> case q2 of  *)
+(*                 { X -> [I, X] *)
+(*                 | Z -> [Z, Z] *)
+(*                 } *)
+(*     }" *)
   (*
 let cnot = 
   Interface.pc @@ "lambda q : Pauli ** Pauli.
@@ -103,7 +102,6 @@ let cnot =
     }
   "
   *)
-
 let _bad_example = lambda Pauli (fun q ->
   caseofP q pauliZ pauliZ
   )
@@ -140,12 +138,12 @@ let evalTest () =
   eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
   eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
 
-  eval (parseFromFile "lib/examples.pc");
+  (* eval (parseFromFile "lib/examples.pc"); *)
 
-  print_endline "\n"
+  (* print_endline "\n" *)
 
   (*
-  
+
 let phasegate = lambda q : Pauli.
     case q of
     { X -> Y
