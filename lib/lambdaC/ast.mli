@@ -1,10 +1,17 @@
-open Scalars
+(*open Core.Scalars*)
+open Interface.Ident
 
 module Type : sig
-  type t = Unit | Sum of t * t | Arrow of t * t
+  type t = { loc : Loc.t; node : node }
+  and node =
+    | Unit
+    | Sum of t * t
+    | Arrow of t * t
+    
   val string_of_t : t -> string
 end
 
+(*
 module Variable : Map.OrderedType with type t = int
 module VariableMap : Map.S with type key = Variable.t
 module VariableSet : sig
@@ -12,39 +19,48 @@ module VariableSet : sig
   val exists_usage_subset : t -> (t -> bool) -> bool
 end
 
-
 module VariableEnvironment : sig
   type t
   val init : t
   val fresh : t -> Variable.t
   val update : Variable.t -> t -> unit
 end 
+*)
 
 module Expr : sig
-  type t =
-      Var of Variable.t
-    | Let of t * Variable.t * t
+  type t = { loc : Loc.t; ty : Type.t option; node : node }
+  and node =
+    | Var of Ident.t
     | Zero of Type.t
-    | Annot of t * Type.t
-    | Plus of t * t
     | Const of int
+    | Plus of t * t
     | Scale of t * t
     | Pair of t * t
-    | Case of t * Variable.t * t * Variable.t * t
-    | Lambda of Variable.t * Type.t * t
-    | Apply of t * t
+    | Case of
+        { scrut : t
+        ; x1 : Ident.t
+        ; a1 : t
+        ; x2 : Ident.t
+        ; a2 : t
+        }
+    | Lambda of { x : Ident.t; tp : Type.t; body : t }
+    | App of t * t
+    | Let of { x : Ident.t; lhs : t; body : t }
+    | Annot of t * Type.t
 
   val string_of_t : t -> string
   val pretty_string_of_t : t -> string
-  val subst : Variable.t -> t -> t -> t
-  val rename_var : Variable.t -> Variable.t -> t -> t
+  val subst : Ident.t -> t -> t -> t
+  val rename_var : Ident.t -> Ident.t -> t -> t
+  (*
   val map : (int -> int) -> t -> t
   val update_env : VariableEnvironment.t -> t -> unit
   val alpha_equiv : t -> t -> bool
+  *)
 end
 
 
-
+(*
 module HOAS : sig
   val var_env : VariableEnvironment.t ref
   val set_variable_environment : VariableEnvironment.t -> unit
@@ -125,3 +141,4 @@ module Typing : sig
   val typecheck' : Type.t VariableMap.t -> Expr.t -> (Type.t,Expr.t) TypeInformation.t
   val typecheck : Expr.t -> (Type.t,Expr.t) TypeInformation.t
 end
+*)

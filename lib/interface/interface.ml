@@ -43,19 +43,19 @@ let parse_with
       in
       raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
 
-let parse (s : string) : Named_ast.LambdaPC_Surface.expr =
+let parse (s : string) : Named_ast.LambdaPC.expr =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb -> Parser.prog Lexer.read lb)
   (*let ast = Parser.prog Lexer.read lexbuf in
   ast*)
 
-let pc (s : string) : Named_ast.LambdaPC_Surface.pc =
+let pc (s : string) : Named_ast.LambdaPC.pc =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb -> Parser.pcprog Lexer.read lb)
   (* let ast = Parser.pcprog Lexer.read lexbuf in *)
   (* ast *)
 
-let parseFromFile (filename : string) : Named_ast.LambdaPC_Surface.expr =
+let parseFromFile (filename : string) : Named_ast.LambdaPC.expr =
   let f = In_channel.open_bin filename in
   let lexbuf = Lexing.from_channel f in
   let ast = Parser.prog Lexer.read lexbuf in

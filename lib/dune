@@ -1,13 +1,23 @@
- (include_subdirs unqualified)
+;(include_subdirs unqualified)
 
-(menhir
- (modules parser))
+;(menhir
+; (modules parser))
 
-(ocamllex
- (modules lexer))
+;(ocamllex
+; (modules lexer))
 
 (library
  (name pCLib)
- (modules :standard)
- (libraries smtml)
+ ;(modules :standard)
+ (modules
+   ;Interface
+   ;Parser
+   ;Lexer
+ )
+ (libraries
+  ; internal
+  interface core
+  ; external
+  smtml
+ )
 )

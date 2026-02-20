@@ -4,8 +4,8 @@ module Type : sig
     val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
-module Variable = LambdaC.Variable
-module VariableMap = LambdaC.VariableMap
+module Variable = Interface.Ident
+module VariableMap = Interface.VariableMap
 module Expr :
   sig
     type t =

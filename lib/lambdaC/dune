@@ -1,0 +1,10 @@
+(library
+ (name lambdaC)
+ (modules
+  Ast
+ )
+ (libraries
+    core
+    interface
+ )
+)

@@ -76,6 +76,9 @@ To interact with PCLib through the parser, use `open PCLib.Interface`. This expo
 
 ## Installation
 
+You will need:
+* dune build smtml
+
 The repository uses the dune build system (https://dune.build/install). Operations include:
 
 * `dune build` - build the library

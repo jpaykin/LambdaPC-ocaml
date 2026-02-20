@@ -1,0 +1,6 @@
+(library
+ (name core)
+ (modules
+  Scalars
+ )
+)
