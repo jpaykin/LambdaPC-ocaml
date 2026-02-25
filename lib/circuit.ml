@@ -7,6 +7,7 @@ type gate =
   | X of qubit
   | Z of qubit
   | CNOT of qubit * qubit  (* control, target *)
+  | SWAP of qubit * qubit  (* qubits to swap *)
 
 type t = gate list
 
@@ -25,6 +26,8 @@ let invert_gate = function
   | X q -> X q
   | Z q -> Z q
   | CNOT (c, target) -> CNOT (c, target)
+  | SWAP (q1, q2) -> SWAP (q1, q2)
+
 
 let dagger (c : t) : t =
   List.rev_map invert_gate c
@@ -36,6 +39,7 @@ let to_string_gate = function
   | X q -> Printf.sprintf "X %d" q
   | Z q -> Printf.sprintf "Z %d" q
   | CNOT (c, target) -> Printf.sprintf "CNOT (%d,%d)" c target
+  | SWAP (q1, q2) -> Printf.sprintf "SWAP (%d,%d)" q1 q2
 
 let to_string (c : t) : string =
   match c with

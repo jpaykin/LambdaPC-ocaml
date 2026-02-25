@@ -134,6 +134,24 @@ let evalTest () =
 
   print_endline "\n"
 
+  (* this is the pauli to clifford - takes an expressiion and makes it a lambdaPc *)
+  (*val pauli_to_Clifford: LambdaPC.Type.t -> LambdaPC.Expr.t -> LambdaPC.Expr.pc *)
+  let pauli_to_Clifford tp p =
+    lambda tp ( fun q -> 
+      (* psi gets of rod of phase things and leaves u with just the vector *)
+      (* omega acts on lambda c things which are ints. *)
+      (* therefor pc needs tp be converted to c things *)
+      phase (LambdaPC.SymplecticForm.omega tp (LambdaPC.SymplecticForm.psi_of p) (LambdaPC.SymplecticForm.psi_of q)) q )
+        (*phase (LambdaPC.HOAS.omega tp p q) q )*)
+        
+      (* using the phase notation from the HOAS file, in lambda pc *)
+      
+
+  (* use this to implment to gate_pc in the sysnthesis file*)
+
+
+  
+
   (*
   
 let phasegate = lambda q : Pauli.
