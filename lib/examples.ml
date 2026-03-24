@@ -145,7 +145,7 @@ let evalTest () =
         (*phase (LambdaPC.HOAS.omega tp p q) q )*)
         
       (* using the phase notation from the HOAS file, in lambda pc *)
-      
+      (* LambdaPC to cliffrord to a PC thing *)
 
   (* use this to implment to gate_pc in the sysnthesis file*)
 
