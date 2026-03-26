@@ -10,10 +10,19 @@ module Ident = struct
     ; loc : Loc.t
     }
 
-  let mk ~text ~loc = { text; sym = Symbol.intern text; loc }
-  let compare x1 x2 = Symbol.compare x1.sym x2.sym
-  let equal x1 x2 = Symbol.equal x1.sym x2.sym
-  let string_of_t x = Symbol.name x.sym
+  let mk ~text ~loc = { text; sym = Symbol.Id.intern text; loc }
+  let compare x1 x2 = Symbol.Id.compare x1.sym x2.sym
+  let equal x1 x2 = Symbol.Id.equal x1.sym x2.sym
+  let string_of_t x = Symbol.Id.name x.sym
+
+  let fresh ?(hint = "x") (loc : Loc.t) () : t =
+    let sym = Symbol.Fresh.gensym ~hint () in
+    { text = Symbol.Id.name sym; sym; loc }
+
+
+  let fresh_like ?hint (loc : Loc.t) (x : t) : t =
+    let hint = match hint with Some h -> h | None -> x.text in
+    fresh ~hint loc ()
 end
 module VariableMap = Map.Make(Ident)
 

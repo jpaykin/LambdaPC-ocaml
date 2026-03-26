@@ -10,21 +10,21 @@ let rec lookup_local (env : env) (key : Symbol.t) : Symbol.t option =
   match env with
   | [] -> None
   | (sym, id) :: tl ->
-      if Symbol.equal sym key then Some id else lookup_local tl key
+      if Symbol.Id.equal sym key then Some id else lookup_local tl key
 
 (* Resolve first in local env, then in the global symbol binding map. *)
 let lookup (env : env) (key : Symbol.t) : Symbol.t option =
   match lookup_local env key with
   | Some id -> Some id
-  | None -> Symbol.resolve_binding key
+  | None -> Symbol.Resolve_scope.resolve_binding key
 
 let freshen (x : Ident.t) : Ident.t =
-  let fresh = Symbol.gensym ~hint:x.text () in
-  { x with sym = fresh; text = Symbol.name fresh }
+  let fresh = Symbol.Fresh.gensym ~hint:x.text () in
+  { x with sym = fresh; text = Symbol.Id.name fresh }
 
 (* Keep location information but rewrite name/text *)
 let rewrite_var (binder_sym : Symbol.t) (site : Ident.t) : Ident.t =
-  { site with sym = binder_sym; text = Symbol.name binder_sym }
+  { site with sym = binder_sym; text = Symbol.Id.name binder_sym }
 
 let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr =
   let loc = e.loc in
@@ -59,7 +59,8 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
       let x' = freshen x in
       let env' = (x.sym, x'.sym) :: env in
       let body' =
-        Symbol.with_binding ~key:x.sym ~value:x'.sym (fun () -> resolve_c env' body)
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_c env' body)
       in
       mk (Let { x = x'; rhs = rhs'; body = body' })
 
@@ -67,7 +68,8 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
       let x' = freshen x in
       let env' = (x.sym, x'.sym) :: env in
       let body' =
-        Symbol.with_binding ~key:x.sym ~value:x'.sym (fun () -> resolve_c env' body)
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_c env' body)
       in
       mk (Lambda { x = x'; tp; body = body' })
 
@@ -77,19 +79,21 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
       let x1' = freshen x1 in
       let env1 = (x1.sym, x1'.sym) :: env in
       let a1' =
-        Symbol.with_binding ~key:x1.sym ~value:x1'.sym (fun () -> resolve_c env1 a1)
+        Symbol.Resolve_scope.with_binding x1.sym x1'.sym
+          (fun () -> resolve_c env1 a1)
       in
 
       let x2' = freshen x2 in
       let env2 = (x2.sym, x2'.sym) :: env in
       let a2' =
-        Symbol.with_binding ~key:x2.sym ~value:x2'.sym (fun () -> resolve_c env2 a2)
+        Symbol.Resolve_scope.with_binding x2.sym x2'.sym
+          (fun () -> resolve_c env2 a2)
       in
 
       mk (Case { scrut = scrut'; x1 = x1'; a1 = a1'; x2 = x2'; a2 = a2' })
 
 let resolve_c_top (e : LambdaC_Surface.expr) : LambdaC_Surface.expr =
-  Symbol.with_scope (fun () -> resolve_c [] e)
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_c [] e)
 
 let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
   : LambdaPC_Surface.expr =
@@ -108,7 +112,7 @@ let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
       let x' = freshen x in
       let env_pc' = (x.sym, x'.sym) :: env_pc in
       let body' =
-        Symbol.with_binding ~key:x.sym ~value:x'.sym
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
           (fun () -> resolve_pc env_pc' env_c body)
       in
       mk (Let { x = x'; rhs = rhs'; body = body' })
@@ -143,14 +147,14 @@ let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
       let x1' = freshen x1 in
       let env_pc1 = (x1.sym, x1'.sym) :: env_pc in
       let t1' =
-        Symbol.with_binding ~key:x1.sym ~value:x1'.sym
+        Symbol.Resolve_scope.with_binding x1.sym x1'.sym
           (fun () -> resolve_pc env_pc1 env_c t1)
       in
 
       let x2' = freshen x2 in
       let env_pc2 = (x2.sym, x2'.sym) :: env_pc in
       let t2' =
-        Symbol.with_binding ~key:x2.sym ~value:x2'.sym
+        Symbol.Resolve_scope.with_binding x2.sym x2'.sym
           (fun () -> resolve_pc env_pc2 env_c t2)
       in
 
@@ -170,7 +174,7 @@ and resolve_pc_fun (env_pc : env) (env_c : env) (f : LambdaPC_Surface.pc)
       let x' = freshen x in
       let env_pc' = (x.sym, x'.sym) :: env_pc in
       let body' =
-        Symbol.with_binding ~key:x.sym ~value:x'.sym
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
           (fun () -> resolve_pc env_pc' env_c body)
       in
       { loc; node = Lam { x = x'; tp; body = body' } }
@@ -183,4 +187,4 @@ and resolve_p (env_pc : env) (env_c : env) (p : LambdaPC_Surface.p)
       { loc; node = Suspend (resolve_pc env_pc env_c e) }
 
 let resolve_pc_top (e : LambdaPC_Surface.expr) : LambdaPC_Surface.expr =
-  Symbol.with_scope (fun () -> resolve_pc [] [] e)
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_pc [] [] e)
