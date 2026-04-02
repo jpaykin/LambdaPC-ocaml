@@ -57,8 +57,10 @@ let test_vzero_vplus_vscale_case_apply () =
   let open Eval2 in
   (* vzero Unit = Const 0 *)
   check string "vzero Unit" (Val.string_of_t (vzero Unit)) ("0");
-  check string "vzero Pair" (Val.string_of_t (vzero (Sum (Unit, Arrow(Unit,Unit)))))
-              Val.(string_of_t (Pair(Const 0, Lambda(3, Unit, Expr.Const 0))));
+  (match vzero (Sum (Unit, Arrow(Unit,Unit))) with
+  | Val.Pair (Val.Const 0, Val.Lambda (_, Unit, Expr.Const 0)) -> ()
+  | v ->
+      failf "Unexpected vzero result: %s\n" (Val.string_of_t v));
 
   (* vplus on consts *)
   let plus_res = vplus (Val.Const 1) (Val.Const 1) in
@@ -77,6 +79,29 @@ let test_symplectic_form () =
   let z = symplectic_form v1 v2 in
   (* For Z2, 1*1 - 0*0 = 1 *)
   check int "symplectic_form" (Z2.int_of_t z) 1
+
+let test_fresh_api_seed_then_allocate () =
+  let reserved = Fresh.current () + 25 in
+  Fresh.seed reserved;
+  let x = Fresh.fresh ~hint:"unit_test" () in
+  check bool "fresh is above seeded id" true (x > reserved)
+
+let test_expr_update_env_seeds_fresh () =
+  let env = VariableEnvironment.create () in
+  let seeded_expr = Expr.Lambda (5000, Unit, Expr.Var 5000) in
+  Expr.update_env env seeded_expr;
+  let x = Fresh.fresh ~hint:"after_expr" () in
+  check bool "fresh is above expr binder" true (x > 5000)
+
+let test_eval_fresh_uses_seeded_allocator () =
+  let env = VariableEnvironment.create () in
+  let seeded_expr = Expr.Lambda (7000, Unit, Expr.Var 7000) in
+  Expr.update_env env seeded_expr;
+  match Eval2.vzero (Arrow (Unit, Unit)) with
+  | Val.Lambda (x, Unit, Expr.Const 0) ->
+      check bool "vzero binder is fresh" true (x > 7000)
+  | v ->
+      failf "Unexpected vzero arrow result: %s\n" (Val.string_of_t v)
 
 let suite =
   [ "TestEvalZ2", [
@@ -105,5 +130,8 @@ let suite =
       test_case "Expr.map and Val.map" `Quick test_expr_map_and_val_map;
       test_case "vzero/vplus/vscale/Case/Apply" `Quick test_vzero_vplus_vscale_case_apply;
       test_case "symplectic_form" `Quick test_symplectic_form;
+      test_case "Fresh API seed then allocate" `Quick test_fresh_api_seed_then_allocate;
+      test_case "Expr.update_env seeds freshness" `Quick test_expr_update_env_seeds_fresh;
+      test_case "Eval uses seeded freshness" `Quick test_eval_fresh_uses_seeded_allocator;
     ];
   ]

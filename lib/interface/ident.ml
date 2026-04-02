@@ -18,7 +18,7 @@ module Ident = struct
   let string_of_t x = Symbol.Id.name x.sym
 
   let fresh ?(hint = "x") (loc : Loc.t) () : t =
-    let sym = Symbol.Fresh.gensym ~hint () in
+    let sym = Fresh.fresh ~hint () in
     { text = Symbol.Id.name sym; sym; loc }
 
 

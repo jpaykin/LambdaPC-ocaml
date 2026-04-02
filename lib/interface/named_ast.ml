@@ -39,6 +39,34 @@ module LambdaC_Surface = struct
 
   let pretty_string_of_ident (x : Ident.t) : string = x.text
 
+  let rec iter_binders (f : Ident.t -> unit) (e : expr) : unit =
+    match e.node with
+    | Var _ | Zero _ | Const _ -> ()
+    | Plus (e1, e2)
+    | Scale (e1, e2)
+    | Pair (e1, e2)
+    | App (e1, e2) ->
+        iter_binders f e1;
+        iter_binders f e2
+    | Case { scrut; x1; a1; x2; a2 } ->
+        iter_binders f scrut;
+        f x1;
+        iter_binders f a1;
+        f x2;
+        iter_binders f a2
+    | Lambda { x; body; _ } ->
+        f x;
+        iter_binders f body
+    | Let { x; rhs; body } ->
+        iter_binders f rhs;
+        f x;
+        iter_binders f body
+    | Annot (e', _) ->
+        iter_binders f e'
+
+  let seed_fresh (e : expr) : unit =
+    iter_binders (fun x -> Fresh.seed x.sym) e
+
   let rec pretty_string_of_expr (e : expr) : string =
     match e.node with
     | Var x -> "var " ^ pretty_string_of_ident x
@@ -107,6 +135,61 @@ module LambdaPC_Surface = struct
     | Suspend of expr
 
   let pretty_string_of_ident (x : Ident.t) : string = x.text
+
+  let rec iter_binders (f : Ident.t -> unit) (e : expr) : unit =
+    match e.node with
+    | Var _ -> ()
+    | Let { x; rhs; body } ->
+        iter_binders f rhs;
+        f x;
+        iter_binders f body
+    | LExpr a ->
+        LambdaC_Surface.iter_binders f a
+    | Phase (a, t) ->
+        LambdaC_Surface.iter_binders f a;
+        iter_binders f t
+    | Prod (t1, t2) ->
+        iter_binders f t1;
+        iter_binders f t2
+    | Pow (t, a) ->
+        iter_binders f t;
+        LambdaC_Surface.iter_binders f a
+    | CasePauli { scrut; tx; tz } ->
+        iter_binders f scrut;
+        iter_binders f tx;
+        iter_binders f tz
+    | In1 { v; _ } | In2 { v; _ } ->
+        iter_binders f v
+    | CasePTensor { scrut; x1; t1; x2; t2 } ->
+        iter_binders f scrut;
+        f x1;
+        iter_binders f t1;
+        f x2;
+        iter_binders f t2
+    | Apply (pc, t) ->
+        iter_binders_pc f pc;
+        iter_binders f t
+    | Force p ->
+        iter_binders_p f p
+
+  and iter_binders_pc (f : Ident.t -> unit) (pc : pc) : unit =
+    match pc.node with
+    | Lam { x; body; _ } ->
+        f x;
+        iter_binders f body
+
+  and iter_binders_p (f : Ident.t -> unit) (p : p) : unit =
+    match p.node with
+    | Suspend t -> iter_binders f t
+
+  let seed_fresh (e : expr) : unit =
+    iter_binders (fun x -> Fresh.seed x.sym) e
+
+  let seed_fresh_pc (pc : pc) : unit =
+    iter_binders_pc (fun x -> Fresh.seed x.sym) pc
+
+  let seed_fresh_p (p : p) : unit =
+    iter_binders_p (fun x -> Fresh.seed x.sym) p
 
   let rec pretty_string_of_expr (e : expr) : string =
     match e.node with

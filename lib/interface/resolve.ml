@@ -19,7 +19,7 @@ let lookup (env : env) (key : Symbol.t) : Symbol.t option =
   | None -> Symbol.Resolve_scope.resolve_binding key
 
 let freshen (x : Ident.t) : Ident.t =
-  let fresh = Symbol.Fresh.gensym ~hint:x.text () in
+  let fresh = Fresh.fresh ~hint:x.text () in
   { x with sym = fresh; text = Symbol.Id.name fresh }
 
 (* Keep location information but rewrite name/text *)
@@ -190,3 +190,9 @@ and resolve_p (env_pc : env) (env_c : env) (p : LambdaPC_Surface.p)
 
 let resolve_pc_top (e : LambdaPC_Surface.expr) : LambdaPC_Surface.expr =
   Symbol.Resolve_scope.with_scope (fun () -> resolve_pc [] [] e)
+
+let resolve_pc_fun_top (f : LambdaPC_Surface.pc) : LambdaPC_Surface.pc =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_pc_fun [] [] f)
+
+let resolve_p_top (p : LambdaPC_Surface.p) : LambdaPC_Surface.p =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_p [] [] p)

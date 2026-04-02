@@ -42,24 +42,27 @@ let parse_with
         if lx = "" then "end of input" else Printf.sprintf "%S" lx
       in
       raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
+  | Resolve.Error { loc; msg } ->
+      raise (Parse_error (Util.loc_string_of_positions loc.sp loc.ep, msg))
 
 let parse (s : string) : Named_ast.LambdaPC_Surface.expr =
   let lexbuf = Lexing.from_string s in
-  parse_with "<stdin>" lexbuf (fun lb -> Parser.prog Lexer.read lb)
-  (*let ast = Parser.prog Lexer.read lexbuf in
-  ast*)
+  parse_with "<stdin>" lexbuf (fun lb ->
+      let ast = Parser.prog Lexer.read lb in
+      Resolve.resolve_pc_top ast)
 
 let pc (s : string) : Named_ast.LambdaPC_Surface.pc =
   let lexbuf = Lexing.from_string s in
-  parse_with "<stdin>" lexbuf (fun lb -> Parser.pcprog Lexer.read lb)
-  (* let ast = Parser.pcprog Lexer.read lexbuf in *)
-  (* ast *)
+  parse_with "<stdin>" lexbuf (fun lb ->
+      let ast = Parser.pcprog Lexer.read lb in
+      Resolve.resolve_pc_fun_top ast)
 
 let parseFromFile (filename : string) : Named_ast.LambdaPC_Surface.expr =
-  let f = In_channel.open_bin filename in
-  let lexbuf = Lexing.from_channel f in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
+  In_channel.with_open_bin filename (fun f ->
+      let lexbuf = Lexing.from_channel f in
+      parse_with filename lexbuf (fun lb ->
+          let ast = Parser.prog Lexer.read lb in
+          Resolve.resolve_pc_top ast))
 
 let eval e =
   print_endline (LambdaPC.Expr.pretty_string_of_t e ^ "\n->*\n");
