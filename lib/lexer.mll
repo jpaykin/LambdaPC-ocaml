@@ -38,6 +38,7 @@ rule read =
   | "I" {ICONST}
   | "in1" {IN1}
   | "in2" {IN2}
+  | "zero" {ZERO}
 
   | "*" {STAR}
   | "^" {CARROT}

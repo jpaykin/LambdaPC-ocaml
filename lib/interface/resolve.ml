@@ -37,6 +37,8 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
           raise (Error { loc = x.loc; msg = "unbound LambdaC variable " ^ x.text })
     )
 
+  | Zero tp -> mk (Zero tp)
+
   | Const n -> mk (Const n)
 
   | Plus (a, b) ->

@@ -54,6 +54,7 @@ let mk_const_lexpr n sp ep : LambdaC_Surface.expr =
 %token ICONST
 %token IN1
 %token IN2
+%token ZERO
 
 %token STAR
 %token CARROT
@@ -133,6 +134,9 @@ lexpr:
   | LVARTAG x=ID
       { let id = mk_ident x $startpos(x) $endpos(x) in
         mk_lexpr $startpos $endpos (LambdaC_Surface.Var id) }
+
+  | ZERO LCURLY tp=ltype RCURLY
+      { mk_lexpr $startpos $endpos (LambdaC_Surface.Zero tp) }
 
   | XCONST
       { let sp, ep = $startpos, $endpos in
@@ -223,8 +227,14 @@ expr:
   | CASE scrut=expr OF LCURLY ZCONST ARROW tz=expr MID XCONST ARROW tx=expr RCURLY
       { mk_expr $startpos $endpos (LambdaPC_Surface.CasePauli { scrut; tx; tz }) }
 
+  | IN1 LCURLY tp=ptype RCURLY v=expr
+      { mk_expr $startpos $endpos (LambdaPC_Surface.In1 { tp; v }) }
+
   | IN1 tp=ptype v=expr
       { mk_expr $startpos $endpos (LambdaPC_Surface.In1 { tp; v }) }
+
+  | IN2 LCURLY tp=ptype RCURLY v=expr
+      { mk_expr $startpos $endpos (LambdaPC_Surface.In2 { tp; v }) }
 
   | IN2 tp=ptype v=expr
       { mk_expr $startpos $endpos (LambdaPC_Surface.In2 { tp; v }) }

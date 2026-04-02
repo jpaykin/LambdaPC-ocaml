@@ -4,6 +4,8 @@ module Loc = struct
 end
 
 module Ident = struct
+  (**TODO: Add unit tests make sure that everything is wired up correctly DOCUMENTATION
+   SEND EMAI*)
   type t =
     { text : string
     ; sym : Symbol.t

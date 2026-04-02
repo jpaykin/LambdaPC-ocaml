@@ -20,6 +20,7 @@ module LambdaC_Surface = struct
   type expr = { loc : Loc.t; ty : Type.t option; node : node }
   and node =
     | Var of Ident.t
+    | Zero of Type.t
     | Const of int
     | Plus of expr * expr
     | Scale of expr * expr
@@ -41,6 +42,7 @@ module LambdaC_Surface = struct
   let rec pretty_string_of_expr (e : expr) : string =
     match e.node with
     | Var x -> "var " ^ pretty_string_of_ident x
+    | Zero tp -> "zero{" ^ Type.pretty_string_of_t tp ^ "}"
     | Const n -> string_of_int n
     | Plus (e1, e2) -> pretty_string_of_expr e1 ^ " + " ^ pretty_string_of_expr e2
     | Scale (e1, e2) -> pretty_string_of_expr e1 ^ " .* " ^ pretty_string_of_expr e2
