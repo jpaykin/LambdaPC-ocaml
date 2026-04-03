@@ -9,22 +9,28 @@ module Ident = struct
   type t =
     { text : string
     ; sym : Symbol.t
-    ; loc : Loc.t
+    ; loc : Loc.t option
     }
 
-  let mk ~text ~loc = { text; sym = Symbol.Id.intern text; loc }
+  let mk ~text ~loc = { text; sym = Symbol.Id.intern text; loc = Some loc }
   let compare x1 x2 = Symbol.Id.compare x1.sym x2.sym
   let equal x1 x2 = Symbol.Id.equal x1.sym x2.sym
   let string_of_t x = Symbol.Id.name x.sym
 
-  let fresh ?(hint = "x") (loc : Loc.t) () : t =
+  let fresh ?(hint = "x") ?loc () : t =
     let sym = Fresh.fresh ~hint () in
     { text = Symbol.Id.name sym; sym; loc }
 
 
-  let fresh_like ?hint (loc : Loc.t) (x : t) : t =
+  let fresh_like ?hint ?loc (x : t) : t =
     let hint = match hint with Some h -> h | None -> x.text in
-    fresh ~hint loc ()
+    let loc  = match loc, x.loc with Some l, _ | None, Some l -> Some l | _, _ -> None in
+    let sym = Fresh.fresh ~hint () in
+    { text = Symbol.Id.name sym; sym; loc}
+
+  let seed (x : t) : unit =
+    Symbol.Fresh.ensure_ge (x.sym + 1)
+
 end
 module VariableMap = Map.Make(Ident)
 

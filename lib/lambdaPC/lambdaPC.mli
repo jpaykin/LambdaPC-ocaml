@@ -1,17 +1,17 @@
+open Ident
+
 module Type : sig
     type t = Pauli | PTensor of t*t
     val ltype_of_t : t -> LambdaC.Type.t
     val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
-module Variable = LambdaC.Variable
-module VariableMap = LambdaC.VariableMap
 module Expr :
   sig
     type t =
-        Var of Variable.t
+        Var of Ident.t
       | Annot of t * Type.t
-      | Let of t * Variable.t * t
+      | Let of t * Ident.t * t
       | LExpr of LambdaC.Expr.t
       | Phase of LambdaC.Expr.t * t
       | Prod of t * t
@@ -19,10 +19,10 @@ module Expr :
       | CasePauli of t * t * t
       | In1 of t * Type.t
       | In2 of Type.t * t
-      | CasePTensor of t * Variable.t * t * Variable.t * t
+      | CasePTensor of t * Ident.t * t * Ident.t * t
       | Apply of pc * t
       | Force of p
-    and pc = Lam of (Variable.t * Type.t * t)
+    and pc = Lam of (Ident.t * Type.t * t)
     and p = Suspend of t
 
     val string_of_t : t -> string
@@ -32,7 +32,7 @@ module Expr :
     val pretty_string_of_pc : pc -> string
     val pretty_string_of_p : p -> string
 
-    val rename_var : int -> int -> t -> t
+    val rename_var : Ident.t -> Ident.t -> t -> t
   end
 module Val :
   sig
@@ -42,9 +42,8 @@ module Val :
   end
 
 module HOAS : sig
-  val fresh : unit -> Variable.t
 
-  val var : Variable.t -> Expr.t
+  val var : Ident.t -> Expr.t
   val letin : Expr.t -> (Expr.t -> Expr.t) -> Expr.t
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
@@ -76,14 +75,8 @@ module PhaseEnvironment : functor (Zd : Scalars.Z_SIG) ->
     end
 module Eval : functor (S : Scalars.SCALARS) ->
     sig
-      module VarEnv = LambdaC.VariableEnvironment
-      val var_env : VarEnv.t ref
-      val set_variable_environment : VarEnv.t -> unit
-      val fresh : unit -> int
       module LEval :
         sig
-          val var_env : VarEnv.t ref
-          val set_variable_environment : VarEnv.t -> unit
           val vzero : LambdaC.Type.t -> LambdaC.Val.t
           val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
           val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t
@@ -93,8 +86,6 @@ module Eval : functor (S : Scalars.SCALARS) ->
         end
       module LEval' :
         sig
-          val var_env : VarEnv.t ref
-          val set_variable_environment : VarEnv.t -> unit
           val vzero : LambdaC.Type.t -> LambdaC.Val.t
           val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
           val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t

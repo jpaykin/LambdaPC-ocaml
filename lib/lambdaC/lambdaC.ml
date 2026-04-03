@@ -1,4 +1,5 @@
 open Scalars
+open Ident
 
 module Type = struct
 
@@ -15,99 +16,25 @@ module Type = struct
 
 end
 
-module Variable = struct
-  type t = int
-  let compare = Int.compare
-end
-module VariableMap = Map.Make(Variable)
-
-module VariableEnvironment = struct
-  type t = Variable.t ref
-  
-  let init : t = {contents = 0}
-  let fresh (x : t) : Variable.t =
-    let y = !x in
-    x := y + 1;
-    y
-
-  (* Record the existance of the variable x *)
-  let update (x : Variable.t) (env : t) : unit =
-    env := max (x+1) !env
-end 
-
-
-module VariableSet = struct
-  module M = Set.Make(Variable)
-  include M
-  (*
-  let string_of_t u = List.fold_left (fun str x -> str ^ string_of_int x) "{" (to_list u)  ^ "}"
-
-  let rename from to_ u = M.map (fun z -> if z = from then to_ else z) u
-  *)
-
-  let rec exists_usage_subset (u : t) (f : t -> bool) : bool =
-    (* want to check if:
-        exists u0, u0 subset u && f u0 }
-      if u is empty (u=0), just check if f(0)
-      if u is not empty, then pick some x in u:
-        u = (u-{x}) U {x}}
-      then
-        u0 subset u
-        <->
-        u0 subset (u-{x})
-        ||
-        (x \in u0 && (u0-{x} subset (u - {x}))
-
-      so 
-        exists u0, u0 subset u && f u0
-        <->
-
-        exists u0,
-          (u0 subset (u-{x}) && f u0)
-        ||
-        exists u0,
-          (x \in u0 && (u0 - {x} subset (u - {x})) && f u0)
-
-        <->
-
-        exists u0,
-          (u0 subset (u-{x}) && f u0)
-        ||
-        exists u0',
-          (u0' subset (u - {x})) && f ({x} union u0'))
-
-        <->
-
-        exists u0,
-          u0 subset (u - {x})
-          && f u0 || f ({x} union u0')
-    *)
-    if M.is_empty u then f u
-    else
-      let x = M.choose u in
-      exists_usage_subset (M.remove x u)
-        (fun u0 -> f u0 || f (M.add x u0))
-end
-
 module Expr = struct
 
   type t =
-      Var of Variable.t
-    | Let of t * Variable.t * t
+      Var of Ident.t
+    | Let of t * Ident.t * t
     | Zero of Type.t
     | Annot of t * Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
     | Pair of t * t
-    | Case of t * Variable.t * t * Variable.t * t
-    | Lambda of Variable.t * Type.t * t
+    | Case of t * Ident.t * t * Ident.t * t
+    | Lambda of Ident.t * Type.t * t
     | Apply of t * t
 
     let rec string_of_t a =
       match a with
-      | Var x -> "Var(" ^ string_of_int x ^ ")"
-      | Let (a1,x,a2) -> "Let(" ^ string_of_t a1 ^ ", " ^ string_of_int x ^ ", " ^ string_of_t a2 ^ ")"
+      | Var x -> "Var(" ^ Ident.string_of_t x ^ ")"
+      | Let (a1,x,a2) -> "Let(" ^ string_of_t a1 ^ ", " ^ Ident.string_of_t x ^ ", " ^ string_of_t a2 ^ ")"
       | Zero tp -> "Zero(" ^ Type.string_of_t tp ^ ")"
       | Annot (a, tp) -> "Annot( " ^ string_of_t a ^ ", " ^ Type.string_of_t tp ^ ")"
       | Plus (a1, a2) -> "Plus(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
@@ -115,16 +42,16 @@ module Expr = struct
       | Scale (a1, a2) -> "Scale(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
       | Pair (a1, a2) -> "Pair(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
       | Case (scrut, x1, a1, x2, a2) ->
-          "Case(" ^ string_of_t scrut ^ ", " ^ string_of_int x1 ^ ", " ^ string_of_t a1 ^ ", " ^ string_of_int x2 ^ ", " ^ string_of_t a2 ^ ")"
+          "Case(" ^ string_of_t scrut ^ ", " ^ Ident.string_of_t x1 ^ ", " ^ string_of_t a1 ^ ", " ^ Ident.string_of_t x2 ^ ", " ^ string_of_t a2 ^ ")"
       | Lambda (x, tp, body) ->
-          "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ string_of_t body ^ ")"
+          "Lambda(" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ string_of_t body ^ ")"
       | Apply (a1, a2) -> "Apply(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
 
     
     let rec pretty_string_of_t a =
       match a with
-      | Var x -> "x" ^ string_of_int x
-      | Let (a1,x,a2) -> "let x" ^ string_of_int x ^ " = " ^ pretty_string_of_t a1 ^ " in " ^ pretty_string_of_t a2
+      | Var x -> "x" ^ Ident.string_of_t x
+      | Let (a1,x,a2) -> "let x" ^ Ident.string_of_t x ^ " = " ^ pretty_string_of_t a1 ^ " in " ^ pretty_string_of_t a2
       | Zero tp -> "0{" ^ Type.string_of_t tp ^ "}"
       | Annot (a, tp) -> "(" ^ pretty_string_of_t a ^ " : " ^ Type.string_of_t tp ^ ")"
       | Plus (a1, a2) -> pretty_string_of_t a1 ^ " + " ^ pretty_string_of_t a2
@@ -137,15 +64,15 @@ module Expr = struct
       | Pair (a1, a2) -> "[" ^ pretty_string_of_t a1 ^ ", " ^ pretty_string_of_t a2 ^ "]"
       | Case (scrut, x1, a1, x2, a2) ->
           "case " ^ pretty_string_of_t scrut
-          ^ " of { x" ^ string_of_int x1 ^ " -> " ^ pretty_string_of_t a1 
-          ^ " | x" ^ string_of_int x2 ^ " -> " ^ pretty_string_of_t a2 ^ "}"
+          ^ " of { x" ^ Ident.string_of_t x1 ^ " -> " ^ pretty_string_of_t a1 
+          ^ " | x" ^ Ident.string_of_t x2 ^ " -> " ^ pretty_string_of_t a2 ^ "}"
       | Lambda (x, tp, body) ->
-          "lambda x" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t body
+          "lambda x" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t body
       | Apply (a1, a2) -> pretty_string_of_t a1 ^ " @ " ^ pretty_string_of_t a2
 
 
     (* NOT epxlicitly capture-avoiding, assumes NO reuse of variables *)
-    let rec subst (from : Variable.t) (to_ : t) (a : t) : t =
+    let rec subst (from : Ident.t) (to_ : t) (a : t) : t =
       match a with
       | Var x -> if x = from then to_ else Var x
       | Let (a1,x,a2) ->
@@ -189,75 +116,74 @@ module Expr = struct
       | Apply (a1,a2) -> 
         Apply (map f a1, map f a2)
 
+
     (* Update env so its next fresh variable is not in a *)
-    let rec update_env env a =
+    let rec update_env a =
       match a with
-      | Var x -> VariableEnvironment.update x env
+      | Var x -> Ident.seed x
       | Let(a1,x,a2) ->
-        update_env env a1;
-        VariableEnvironment.update x env;
-        update_env env a2
+        Ident.seed x;
+        update_env a1;
+        update_env a2
       | Zero _ -> ()
-      | Annot (a', _) -> update_env env a'
-      | Plus (a1, a2) -> update_env env a1; update_env env a2
+      | Annot (a', _) -> update_env a'
+      | Plus (a1, a2) -> update_env a1; update_env a2
       | Const _ -> ()
-      | Scale (a1, a2) -> update_env env a1; update_env env a2
-      | Pair (a1, a2) -> update_env env a1; update_env env a2
+      | Scale (a1, a2) -> update_env a1; update_env a2
+      | Pair (a1, a2) -> update_env a1; update_env a2
       | Case (a', x1, a1', x2, a2') ->
-        update_env env a';
-        VariableEnvironment.update x1 env;
-        VariableEnvironment.update x2 env;
-        update_env env a1';
-        update_env env a2'
+        update_env a';
+        Ident.seed x1;
+        Ident.seed x2;
+        update_env a1';
+        update_env a2'
       | Lambda (x,_,a') ->
-        VariableEnvironment.update x env;
-        update_env env a'
-      | Apply (a1, a2) -> update_env env a1; update_env env a2
+        Ident.seed x;
+        update_env a'
+      | Apply (a1, a2) -> update_env a1; update_env a2
 
     (* alpha equivalence *)
     (* Take as input two expressions. Returns true iff they are syntactically equal (including free variables, possibly not including type or usage annotations) up to renaming their bound variables. To check if two binders are equal e.g. (lambda x1.a1) and (lambda x2.a2), the function will create a fresh variable y from env and rename both x1 and x2 to y.
       Requires: fresh env will always return a variable that does not occur in either a1 or a2
     *)
-    let rec alpha_equiv' (env : VariableEnvironment.t) a1 a2 =
+    let rec alpha_equiv' a1 a2 =
       match a1, a2 with
       | Var x1, Var x2 -> x1 = x2
       | Let(a1,x1,a1'), Let(a2,x2,a2') ->
-        let x = VariableEnvironment.fresh env in
-        alpha_equiv' env a1 a2
-          && alpha_equiv' env (rename_var x1 x a1') (rename_var x2 x a2')
+        let x = Ident.fresh_like x1 in
+        alpha_equiv' a1 a2
+          && alpha_equiv' (rename_var x1 x a1') (rename_var x2 x a2')
       | Zero tp1, Zero tp2 -> tp1 = tp2
-      | Annot(a1', tp1), Annot(a2', tp2) -> tp1 = tp2 && alpha_equiv' env a1' a2'
-      | Annot(a1', _), _ -> alpha_equiv' env a1' a2
-      | _, Annot(a2', _) -> alpha_equiv' env a1 a2'
-      | Plus (a11,a12), Plus(a21,a22) -> alpha_equiv' env a11 a21 && alpha_equiv' env a12 a22
+      | Annot(a1', tp1), Annot(a2', tp2) -> tp1 = tp2 && alpha_equiv' a1' a2'
+      | Annot(a1', _), _ -> alpha_equiv' a1' a2
+      | _, Annot(a2', _) -> alpha_equiv' a1 a2'
+      | Plus (a11,a12), Plus(a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
       | Const v1, Const v2 -> v1 = v2
-      | Scale (a11,a12), Scale (a21,a22) -> alpha_equiv' env a11 a21 && alpha_equiv' env a12 a22
-      | Pair (a11,a12), Pair (a21,a22) -> alpha_equiv' env a11 a21 && alpha_equiv' env a12 a22
+      | Scale (a11,a12), Scale (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
+      | Pair (a11,a12), Pair (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
       | Case (a1',x11,a11,x12,a12), Case(a2',x21,a21,x22,a22) ->
-        let x = VariableEnvironment.fresh env in
-        alpha_equiv' env a1' a2'
-        && alpha_equiv' env (rename_var x11 x a11) (rename_var x21 x a21)
-        && alpha_equiv' env (rename_var x12 x a12) (rename_var x22 x a22)
+        let x = Ident.fresh_like x11 in
+        alpha_equiv' a1' a2'
+        && alpha_equiv' (rename_var x11 x a11) (rename_var x21 x a21)
+        && alpha_equiv' (rename_var x12 x a12) (rename_var x22 x a22)
       | Lambda (x1, tp1, a1), Lambda (x2, tp2, a2) ->
-        let x = VariableEnvironment.fresh env in
-        tp1 = tp2 && alpha_equiv' env (rename_var x1 x a1) (rename_var x2 x a2)
-      | Apply (a11,a12), Apply (a21,a22) -> alpha_equiv' env a11 a21 && alpha_equiv' env a12 a22
+        let x = Ident.fresh_like x1 in
+        tp1 = tp2 && alpha_equiv' (rename_var x1 x a1) (rename_var x2 x a2)
+      | Apply (a11,a12), Apply (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
       | _, _ -> false
 
+    let alpha_equiv = alpha_equiv'
+    (*
     let alpha_equiv a1 a2 =
       let env = VariableEnvironment.init in
       update_env env a1;
       update_env env a2;
       alpha_equiv' env a1 a2
+    *)
 
   end
 
 module HOAS = struct
-  let var_env : VariableEnvironment.t ref = {contents = VariableEnvironment.init}
-  let set_variable_environment (env : VariableEnvironment.t) = var_env := env
-  let fresh () : Variable.t = VariableEnvironment.fresh !var_env
-
-  let update_env (a : Expr.t) = Expr.update_env !var_env a
 
   let var x = Expr.Var x
   let zero tp = Expr.Zero tp
@@ -265,12 +191,12 @@ module HOAS = struct
   let const x = Expr.Const x
   let ( * ) a1 a2 = Expr.Scale (a1,a2)
   let case a fx fz =
-      let x = fresh() in
-      let z = fresh() in
+      let x = Ident.fresh() in
+      let z = Ident.fresh() in
       Expr.Case(a, x, fx (var x), z, fz (var z))
   
   let lambda tp (f : Expr.t -> Expr.t) =
-      let x = fresh() in
+      let x = Ident.fresh() in
       Expr.Lambda (x, tp, f (var x))
 
   let (@) a1 a2 = Expr.Apply (a1, a2)
@@ -283,14 +209,14 @@ module Val = struct
     type t =
       | Const of int
       | Pair of t * t
-      | Lambda of Variable.t * Type.t * Expr.t
+      | Lambda of Ident.t * Type.t * Expr.t
 
     let rec string_of_t v =
           match v with
           | Const c -> string_of_int c
           | Pair (v1, v2) -> "(" ^ string_of_t v1 ^ ", " ^ string_of_t v2 ^ ")"
           | Lambda (x, tp, a) ->
-              "Lambda(" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.string_of_t a ^ ")"
+              "Lambda(" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.string_of_t a ^ ")"
 
 
     let rec pretty_string_of_t v =
@@ -302,7 +228,7 @@ module Val = struct
           | Pair (Const 1, Const 1) -> "Y"
           | Pair (v1, v2) -> "(" ^ pretty_string_of_t v1 ^ ", " ^ pretty_string_of_t v2 ^ ")"
           | Lambda (x, tp, a) ->
-              "lambda x" ^ string_of_int x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.pretty_string_of_t a
+              "lambda x" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ Expr.pretty_string_of_t a
 
     let rec expr_of_t v =
       match v with
@@ -322,9 +248,6 @@ module Val = struct
   end
 
 module Eval (Zd : Z_SIG) = struct
-  let var_env : VariableEnvironment.t ref = {contents = VariableEnvironment.init}
-  let set_variable_environment (env : VariableEnvironment.t) = var_env := env
-  let fresh () : Variable.t = VariableEnvironment.fresh !var_env
 
   let rec vzero (ltp : Type.t) =
     match ltp with
@@ -334,7 +257,7 @@ module Eval (Zd : Z_SIG) = struct
         let v2 = vzero ltp2 in
         Val.Pair (v1, v2)
     | Arrow (ltp1, ltp2) ->
-        let x = fresh() in
+        let x = Ident.fresh() in
         let v = vzero ltp2 in
         Val.Lambda (x, ltp1, Val.expr_of_t v)
 
@@ -346,7 +269,7 @@ module Eval (Zd : Z_SIG) = struct
       Val.Pair (vplus a1 a2, vplus b1 b2)
     | Val.Lambda (x1, tp1, a1), Val.Lambda (x2, tp2, a2) ->
         if tp1 = tp2 then
-            let fresh_x = fresh() in
+            let fresh_x = Ident.fresh() in
             let a1' = Expr.rename_var x1 fresh_x a1 in
             let a2' = Expr.rename_var x2 fresh_x a2 in
             Val.Lambda (fresh_x, tp1, Expr.Plus (a1', a2'))
@@ -411,7 +334,7 @@ module Eval (Zd : Z_SIG) = struct
 end
 
 module TypeInformation = struct
-  type usage_relation = VariableSet.t -> VariableSet.t -> bool
+  type usage_relation = IdentSet.t -> IdentSet.t -> bool
 
   type ('tp, 'expr) t = {
     usage : usage_relation;
@@ -438,10 +361,10 @@ module TypeInformation = struct
     (*print_string _msg;*)
     ()
 
-  let type_of_var (gamma : 'a VariableMap.t) (x : Variable.t) : 'a =
+  let type_of_var (gamma : 'a VariableMap.t) (x : Ident.t) : 'a =
     match VariableMap.find_opt x gamma with
     | None ->
-      let msg = "Variable " ^ string_of_int x ^ " not found in the typing context" in
+      let msg = "Variable " ^ Ident.string_of_t x ^ " not found in the typing context" in
       terr msg
     | Some tp -> tp
 
@@ -453,34 +376,34 @@ module TypeInformation = struct
 
   let var_usage x : usage_relation =
     fun u1 u2 ->
-      VariableSet.mem x u1
-      && VariableSet.equal u2 (VariableSet.remove x u1)
+      IdentSet.mem x u1
+      && IdentSet.equal u2 (IdentSet.remove x u1)
   let same_usage info1 info2 : usage_relation =
     fun u1 u2 -> info1.usage u1 u2 && info2.usage u1 u2
   let disjoint_usage info1 info2 : usage_relation =
     fun u_in u_out ->
-      VariableSet.exists_usage_subset u_in (fun u_mid ->
+      IdentSet.exists_usage_subset u_in (fun u_mid ->
         info1.usage u_in u_mid
         && info2.usage u_mid u_out
         )
   let disjoint_usage_with info1 x info2 : usage_relation =
     fun u_in u_out ->
-      VariableSet.exists_usage_subset u_in (fun u_mid ->
-        not (VariableSet.mem x u_in)
+      IdentSet.exists_usage_subset u_in (fun u_mid ->
+        not (IdentSet.mem x u_in)
         && info1.usage u_in u_mid
-        && info2.usage (VariableSet.add x u_mid) u_out
-        && not (VariableSet.mem x u_out)
+        && info2.usage (IdentSet.add x u_mid) u_out
+        && not (IdentSet.mem x u_out)
       )
   let disjoint_usage_branch info0 x1 info1 x2 info2 : usage_relation =
     fun u_in u_out ->
-      VariableSet.exists_usage_subset u_in (fun u_mid ->
+      IdentSet.exists_usage_subset u_in (fun u_mid ->
         (* variables x1 and x2 should not appear in u_in or u_out at all *)
-        (VariableSet.is_empty @@ VariableSet.inter
-          (VariableSet.union u_in u_out)
-          (VariableSet.of_list [x1;x2]))
+        (IdentSet.is_empty @@ IdentSet.inter
+          (IdentSet.union u_in u_out)
+          (IdentSet.of_list [x1;x2]))
         && info0.usage u_in u_mid
-        && info1.usage (VariableSet.add x1 u_mid) u_out
-        && info2.usage (VariableSet.add x2 u_mid) u_out
+        && info1.usage (IdentSet.add x1 u_mid) u_out
+        && info2.usage (IdentSet.add x2 u_mid) u_out
         )
 end
 
@@ -524,7 +447,7 @@ module Typing = struct
       {
         expr = Zero tp;
         tp = tp;
-        usage = fun u1 u2 -> VariableSet.subset u2 u1
+        usage = fun u1 u2 -> IdentSet.subset u2 u1
       }
 
     | Annot (a',alpha) ->
@@ -550,7 +473,7 @@ module Typing = struct
       {
         expr = Const r;
         tp = Unit;
-        usage = VariableSet.equal
+        usage = IdentSet.equal
       }
 
     | Scale (a1,a2) ->
@@ -593,8 +516,8 @@ module Typing = struct
         expr = Lambda (x, alpha, info'.expr);
         tp = Arrow(alpha,info'.tp);
         usage = fun u1 u2 ->
-          not VariableSet.(mem x (union u1 u2))
-          && info'.usage (VariableSet.add x u1) u2
+          not IdentSet.(mem x (union u1 u2))
+          && info'.usage (IdentSet.add x u1) u2
       }
 
     | Apply (a1,a2) ->
@@ -611,7 +534,7 @@ module Typing = struct
   let typecheck a =
     let info = typecheck' VariableMap.empty a in
     (* linearity check implies info.usage(0,0) *)
-    match info.usage VariableSet.empty VariableSet.empty with
+    match info.usage IdentSet.empty IdentSet.empty with
     | true -> info
     | false ->
       terr @@ "Linearity check failed in the usage relation:\n" ^ string_of_info info

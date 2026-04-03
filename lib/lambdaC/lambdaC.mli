@@ -1,57 +1,39 @@
 open Scalars
+open Ident
 
 module Type : sig
   type t = Unit | Sum of t * t | Arrow of t * t
   val string_of_t : t -> string
 end
 
-module Variable : Map.OrderedType with type t = int
-module VariableMap : Map.S with type key = Variable.t
-module VariableSet : sig
-  include Set.S with type elt = Variable.t
-  val exists_usage_subset : t -> (t -> bool) -> bool
-end
-
-
-module VariableEnvironment : sig
-  type t
-  val init : t
-  val fresh : t -> Variable.t
-  val update : Variable.t -> t -> unit
-end 
-
 module Expr : sig
   type t =
-      Var of Variable.t
-    | Let of t * Variable.t * t
+      Var of Ident.t
+    | Let of t * Ident.t * t
     | Zero of Type.t
     | Annot of t * Type.t
     | Plus of t * t
     | Const of int
     | Scale of t * t
     | Pair of t * t
-    | Case of t * Variable.t * t * Variable.t * t
-    | Lambda of Variable.t * Type.t * t
+    | Case of t * Ident.t * t * Ident.t * t
+    | Lambda of Ident.t * Type.t * t
     | Apply of t * t
 
   val string_of_t : t -> string
   val pretty_string_of_t : t -> string
-  val subst : Variable.t -> t -> t -> t
-  val rename_var : Variable.t -> Variable.t -> t -> t
+  val subst : Ident.t -> t -> t -> t
+  val rename_var : Ident.t -> Ident.t -> t -> t
   val map : (int -> int) -> t -> t
-  val update_env : VariableEnvironment.t -> t -> unit
+  val update_env : t -> unit
   val alpha_equiv : t -> t -> bool
 end
 
 
 
 module HOAS : sig
-  val var_env : VariableEnvironment.t ref
-  val set_variable_environment : VariableEnvironment.t -> unit
-  val fresh : unit -> Variable.t
-  val update_env : Expr.t -> unit
 
-  val var : Variable.t -> Expr.t
+  val var : Ident.t -> Expr.t
   val zero : Type.t -> Expr.t
   val (+) : Expr.t -> Expr.t -> Expr.t
   val const : int -> Expr.t
@@ -69,7 +51,7 @@ module Val : sig
   type t =
     | Const of int
     | Pair of t * t
-    | Lambda of Variable.t * Type.t * Expr.t
+    | Lambda of Ident.t * Type.t * Expr.t
   val string_of_t : t -> string
   val pretty_string_of_t : t -> string
   val expr_of_t : t -> Expr.t
@@ -79,8 +61,6 @@ end
 
 
 module Eval : functor (Zd : Z_SIG) -> sig
-  val var_env : VariableEnvironment.t ref
-  val set_variable_environment : VariableEnvironment.t -> unit
 
   val vzero  : Type.t -> Val.t
   val vplus  : Val.t -> Val.t -> Val.t
@@ -92,7 +72,7 @@ module Eval : functor (Zd : Z_SIG) -> sig
 end
 
 module TypeInformation : sig
-  type usage_relation = VariableSet.t -> VariableSet.t -> bool
+  type usage_relation = IdentSet.t -> IdentSet.t -> bool
 
   type ('tp, 'expr) t = {
     usage : usage_relation;
@@ -106,14 +86,14 @@ module TypeInformation : sig
   exception TypeError
   val terr : string -> 'a
   val debug : string -> unit
-  val type_of_var : 'a VariableMap.t -> Variable.t -> 'a
+  val type_of_var : 'a VariableMap.t -> Ident.t -> 'a
   val assert_type : ('a -> string) -> 'a -> 'a -> unit
 
-  val var_usage : Variable.t -> usage_relation
+  val var_usage : Ident.t -> usage_relation
   val same_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
   val disjoint_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation
-  val disjoint_usage_with : ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
-  val disjoint_usage_branch : ('tp0,'expr0) t -> Variable.t -> ('tp1,'expr1) t -> Variable.t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_with : ('tp1,'expr1) t -> Ident.t -> ('tp2,'expr2) t -> usage_relation
+  val disjoint_usage_branch : ('tp0,'expr0) t -> Ident.t -> ('tp1,'expr1) t -> Ident.t -> ('tp2,'expr2) t -> usage_relation
 end
 
 
