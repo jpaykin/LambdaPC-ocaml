@@ -793,7 +793,7 @@ module SmtLambdaPC (S : SCALARS) = struct
         debug @@ "RHS: " ^ LambdaC.Expr.pretty_string_of_t rhs ^ "\n";
 
         (* check for equivalence *)
-        let ctx = LambdaC.VariableMap.of_list [(x1,in_tp'); (x2,in_tp')] in
+        let ctx = VariableMap.add x1 in_tp' (VariableMap.singleton x2 in_tp') in
         match SmtC.equiv LambdaC.Type.Unit ctx lhs rhs with
         | Ok _ -> ()
         | Error counter ->

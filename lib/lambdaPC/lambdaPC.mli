@@ -67,15 +67,14 @@ module SymplecticForm : sig
   val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
 
-module PhaseEnvironment : (Zd : Scalars.Z_SIG) ->
+module PhaseEnvironment : functor (Zd : Scalars.Z_SIG) ->
     sig
       type t = Zd.t ref
       val init : t
       val add_phase : t -> Zd.t -> unit
       val add_integer_phase : t -> int -> unit
     end
-module Eval :
-  (S : Scalars.SCALARS) ->
+module Eval : functor (S : Scalars.SCALARS) ->
     sig
       module VarEnv = LambdaC.VariableEnvironment
       val var_env : VarEnv.t ref
