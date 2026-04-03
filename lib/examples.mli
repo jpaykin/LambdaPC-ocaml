@@ -1,3 +1,5 @@
+open Ident
+
 (* examples.mli *)
 
 (** [const r] returns a LambdaC expression representing the scalar r *)
@@ -54,31 +56,23 @@ val cnot : LambdaPC.Expr.pc
 module S2 : Scalars.SCALARS
 module Eval2 :
   sig
-    module VarEnv = LambdaC.VariableEnvironment
-    val var_env : VarEnv.t ref
-    val set_variable_environment : VarEnv.t -> unit
-    val fresh : unit -> int
     module LEval :
       sig
-        val var_env : VarEnv.t ref
-        val set_variable_environment : VarEnv.t -> unit
         val vzero : LambdaC.Type.t -> LambdaC.Val.t
         val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
         val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t
         val eval :
-          LambdaC.Val.t LambdaC.VariableMap.t ->
+          LambdaC.Val.t VariableMap.t ->
           LambdaC.Expr.t -> LambdaC.Val.t
         val symplectic_form : LambdaC.Val.t -> LambdaC.Val.t -> S2.Zd.t
       end
     module LEval' :
       sig
-        val var_env : VarEnv.t ref
-        val set_variable_environment : VarEnv.t -> unit
         val vzero : LambdaC.Type.t -> LambdaC.Val.t
         val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
         val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t
         val eval :
-          LambdaC.Val.t LambdaC.VariableMap.t ->
+          LambdaC.Val.t VariableMap.t ->
           LambdaC.Expr.t -> LambdaC.Val.t
         val symplectic_form : LambdaC.Val.t -> LambdaC.Val.t -> S2.Zd'.t
       end
@@ -90,7 +84,7 @@ module Eval2 :
     val cfg_pow : LambdaPC.Val.t -> int -> LambdaPC.Val.t
     val case_phase : int -> int -> int
     val eval :
-      LambdaC.Val.t LambdaC.VariableMap.t ->
+      LambdaC.Val.t VariableMap.t ->
       LambdaPC.Expr.t -> LambdaPC.Val.t
     val evalClosed : LambdaPC.Expr.t -> LambdaPC.Val.t
   end
