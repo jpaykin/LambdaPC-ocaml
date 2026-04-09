@@ -142,44 +142,68 @@ module Expr = struct
         update_env a'
       | Apply (a1, a2) -> update_env a1; update_env a2
 
-    (* alpha equivalence *)
-    (* Take as input two expressions. Returns true iff they are syntactically equal (including free variables, possibly not including type or usage annotations) up to renaming their bound variables. To check if two binders are equal e.g. (lambda x1.a1) and (lambda x2.a2), the function will create a fresh variable y from env and rename both x1 and x2 to y.
-      Requires: fresh env will always return a variable that does not occur in either a1 or a2
-    *)
-    let rec alpha_equiv' a1 a2 =
+
+    let bind_binders env_lr env_rl (xl : Ident.t) (xr : Ident.t) =
+      let l = VariableMap.find_opt xl env_lr in
+      let r = VariableMap.find_opt xr env_rl in
+      match l, r with
+      | None, None ->
+          Some (
+            VariableMap.add xl xr env_lr,
+            VariableMap.add xr xl env_rl
+          )
+      | Some xr', Some xl' when Ident.equal xr xr' && Ident.equal xl xl' ->
+          Some (env_lr, env_rl)
+      | _, _ ->
+          None
+
+    (* alpha equivalence with explicit binder correspondence; does not allocate fresh ids *)
+    let rec alpha_equiv' env_lr env_rl a1 a2 =
       match a1, a2 with
-      | Var x1, Var x2 -> x1 = x2
-      | Let(a1,x1,a1'), Let(a2,x2,a2') ->
-        let x = Ident.fresh_like x1 in
-        alpha_equiv' a1 a2
-          && alpha_equiv' (rename_var x1 x a1') (rename_var x2 x a2')
-      | Zero tp1, Zero tp2 -> tp1 = tp2
-      | Annot(a1', tp1), Annot(a2', tp2) -> tp1 = tp2 && alpha_equiv' a1' a2'
-      | Annot(a1', _), _ -> alpha_equiv' a1' a2
-      | _, Annot(a2', _) -> alpha_equiv' a1 a2'
-      | Plus (a11,a12), Plus(a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
-      | Const v1, Const v2 -> v1 = v2
-      | Scale (a11,a12), Scale (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
-      | Pair (a11,a12), Pair (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
-      | Case (a1',x11,a11,x12,a12), Case(a2',x21,a21,x22,a22) ->
-        let x = Ident.fresh_like x11 in
-        alpha_equiv' a1' a2'
-        && alpha_equiv' (rename_var x11 x a11) (rename_var x21 x a21)
-        && alpha_equiv' (rename_var x12 x a12) (rename_var x22 x a22)
-      | Lambda (x1, tp1, a1), Lambda (x2, tp2, a2) ->
-        let x = Ident.fresh_like x1 in
-        tp1 = tp2 && alpha_equiv' (rename_var x1 x a1) (rename_var x2 x a2)
-      | Apply (a11,a12), Apply (a21,a22) -> alpha_equiv' a11 a21 && alpha_equiv' a12 a22
+      | Var x1, Var x2 ->
+        (match VariableMap.find_opt x1 env_lr, VariableMap.find_opt x2 env_rl with
+         | Some x2', Some x1' -> Ident.equal x2 x2' && Ident.equal x1 x1'
+         | None, None -> Ident.equal x1 x2
+         | _, _ -> false)
+      | Let (a11, x1, a12), Let (a21, x2, a22) ->
+        alpha_equiv' env_lr env_rl a11 a21
+        &&
+        (match bind_binders env_lr env_rl x1 x2 with
+         | Some (env_lr', env_rl') -> alpha_equiv' env_lr' env_rl' a12 a22
+         | None -> false)
+      | Zero tp1, Zero tp2 ->
+        tp1 = tp2
+      | Annot (a1', tp1), Annot (a2', tp2) ->
+        tp1 = tp2 && alpha_equiv' env_lr env_rl a1' a2'
+      | Annot (a1', _), _ ->
+        alpha_equiv' env_lr env_rl a1' a2
+      | _, Annot (a2', _) ->
+        alpha_equiv' env_lr env_rl a1 a2'
+      | Plus (a11, a12), Plus (a21, a22)
+      | Scale (a11, a12), Scale (a21, a22)
+      | Pair (a11, a12), Pair (a21, a22)
+      | Apply (a11, a12), Apply (a21, a22) ->
+        alpha_equiv' env_lr env_rl a11 a21 && alpha_equiv' env_lr env_rl a12 a22
+      | Const v1, Const v2 ->
+        v1 = v2
+      | Case (scrut1, x11, a11, x12, a12), Case (scrut2, x21, a21, x22, a22) ->
+        alpha_equiv' env_lr env_rl scrut1 scrut2
+        &&
+        (match bind_binders env_lr env_rl x11 x21, bind_binders env_lr env_rl x12 x22 with
+         | Some (env_lr1, env_rl1), Some (env_lr2, env_rl2) ->
+           alpha_equiv' env_lr1 env_rl1 a11 a21
+           && alpha_equiv' env_lr2 env_rl2 a12 a22
+         | _, _ -> false)
+      | Lambda (x1, tp1, body1), Lambda (x2, tp2, body2) ->
+        tp1 = tp2
+        &&
+        (match bind_binders env_lr env_rl x1 x2 with
+         | Some (env_lr', env_rl') -> alpha_equiv' env_lr' env_rl' body1 body2
+         | None -> false)
       | _, _ -> false
 
-    let alpha_equiv = alpha_equiv'
-    (*
     let alpha_equiv a1 a2 =
-      let env = VariableEnvironment.init in
-      update_env env a1;
-      update_env env a2;
-      alpha_equiv' env a1 a2
-    *)
+      alpha_equiv' VariableMap.empty VariableMap.empty a1 a2
 
   end
 
