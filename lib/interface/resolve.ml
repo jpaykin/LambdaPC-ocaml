@@ -1,7 +1,7 @@
 open Named_ast
 open Ident
 
-exception Error of { loc : Loc.t; msg : string }
+exception Error of { loc : Loc.t option; msg : string }
 
 type env = (Symbol.t * Symbol.t) list
 

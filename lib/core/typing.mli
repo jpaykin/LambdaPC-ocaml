@@ -1,3 +1,4 @@
+open Ident
 open LambdaPC
 
 module LinearityTyping : sig
@@ -15,14 +16,14 @@ module SmtLambdaCExpr : sig
   open LambdaC
     type normal =
       NConst of int
-    | NLambda of Variable.t * Type.t * normal
+    | NLambda of Ident.t * Type.t * normal
     | NPair of normal * normal
     | Annot of neutral * Type.t
     | Neutral of neutral
     and neutral =
-      NVar of Variable.t
+      NVar of Ident.t
     | NApply of neutral * normal
-    | NCase of neutral * Variable.t * normal * Variable.t * normal
+    | NCase of neutral * Ident.t * normal * Ident.t * normal
     | NPlus of neutral * normal
     | NScale of normal * neutral
 
@@ -35,8 +36,7 @@ module SmtLambdaCExpr : sig
   val normalize : LambdaC.Expr.t -> LambdaC.Expr.t
 end
 
-module SmtLambdaC :
-  (_ : Scalars.Z_SIG) -> sig
+module SmtLambdaC : Scalars.Z_SIG -> sig
   open LambdaC
     val smtml_of_type : LambdaC.Type.t -> Smtml.Ty.t
     val smtml_of_expr : Type.t VariableMap.t -> Smtml.Symbol.t VariableMap.t -> Expr.t -> Type.t -> Smtml.Expr.t
@@ -51,8 +51,7 @@ module SmtLambdaC :
     val equiv : Type.t -> Type.t VariableMap.t -> Expr.t -> Expr.t -> (unit, counterexample) result
   end
 
-module SmtLambdaPC :
-  (_ : Scalars.SCALARS) -> sig
+module SmtLambdaPC : Scalars.SCALARS -> sig
   val symplectic_check : Type.t -> Type.t -> LambdaPC.Expr.pc -> unit
   val typecheck : LambdaPC.Expr.pc -> Type.t * Type.t
 end

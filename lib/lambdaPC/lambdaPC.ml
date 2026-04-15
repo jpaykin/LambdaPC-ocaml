@@ -1,4 +1,5 @@
 open Scalars
+open Ident
 
 module Type = struct
 
@@ -30,15 +31,12 @@ module Type = struct
     | PTensor (tp1, tp2) -> "(" ^ string_of_t tp1 ^ ") ** (" ^ string_of_t tp2 ^ ")"
 end
 
-module Variable = LambdaC.Variable
-module VariableMap = LambdaC.VariableMap
-
 module Expr = struct
 
   type t =
-    | Var   of Variable.t
+    | Var   of Ident.t
     | Annot of t * Type.t
-    | Let   of t * Variable.t * t
+    | Let   of t * Ident.t * t
     | LExpr of LambdaC.Expr.t
     | Phase of LambdaC.Expr.t * t
     | Prod  of t * t
@@ -46,21 +44,21 @@ module Expr = struct
     | CasePauli of t * t * t
     | In1   of t * Type.t
     | In2   of Type.t * t
-    | CasePTensor of t * Variable.t * t * Variable.t * t
+    | CasePTensor of t * Ident.t * t * Ident.t * t
     | Apply of pc * t
     | Force of p
 
-  and pc = Lam of (Variable.t * Type.t * t)
+  and pc = Lam of (Ident.t * Type.t * t)
 
   and p = Suspend of t
   
   (*val string_of_t : t -> string*)
   let rec string_of_t e = 
     match e with
-      | Var x -> "Var(" ^ string_of_int x ^ ")"
+      | Var x -> "Var(" ^ Ident.string_of_t x ^ ")"
       | Annot (t',tau') ->
         "Annot(" ^ string_of_t t' ^ ", " ^ Type.string_of_t tau' ^ ")"
-      | Let (e1, x, e2) -> "Let(" ^ string_of_t e1 ^ ", " ^ string_of_int x ^ ", " ^ string_of_t e2 ^ ")"
+      | Let (e1, x, e2) -> "Let(" ^ string_of_t e1 ^ ", " ^ Ident.string_of_t x ^ ", " ^ string_of_t e2 ^ ")"
       | LExpr le -> "LExpr(" ^ LambdaC.Expr.string_of_t le ^ ")"
       | Phase (a, t) -> "Phase(" ^ LambdaC.Expr.string_of_t a ^ ", " ^ string_of_t t ^ ")"
       | Prod (t1, t2) -> "Prod(" ^ string_of_t t1 ^ ", " ^ string_of_t t2 ^ ")"
@@ -69,21 +67,21 @@ module Expr = struct
       | In1 (t,_tp) -> "In1(" ^ string_of_t t ^ ")"
       | In2 (_,t) -> "In2(" ^ string_of_t t ^ ")"
       | CasePTensor (e, x1, t1, x2, t2) ->
-        "CasePTensor(" ^ string_of_t e ^ ", " ^ string_of_int x1 ^ ", " ^ string_of_t t1 ^ ", " ^ string_of_int x2 ^ ", " ^ string_of_t t2 ^ ")"
+        "CasePTensor(" ^ string_of_t e ^ ", " ^ Ident.string_of_t x1 ^ ", " ^ string_of_t t1 ^ ", " ^ Ident.string_of_t x2 ^ ", " ^ string_of_t t2 ^ ")"
 
       | Apply (f, e) -> string_of_pc f ^ " @ " ^ string_of_t e
       | Force e' -> string_of_p e'
   and string_of_pc f = match f with
-      | Lam (x, tp, e) -> "lambda " ^ string_of_int x ^ " : " ^ Type.string_of_t tp ^ ". " ^ string_of_t e
+      | Lam (x, tp, e) -> "lambda " ^ Ident.string_of_t x ^ " : " ^ Type.string_of_t tp ^ ". " ^ string_of_t e
   and string_of_p e = match e with
       | Suspend e' -> string_of_t e'
 
 let rec pretty_string_of_t e = 
     match e with
-      | Var x -> "x" ^ string_of_int x
+      | Var x -> "x" ^ Ident.string_of_t x
       | Annot (e',tau') ->
         "(" ^ pretty_string_of_t e' ^ " : " ^ Type.string_of_t tau' ^ ")"
-      | Let (e1, x, e2) -> "let " ^ string_of_int x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
+      | Let (e1, x, e2) -> "let " ^ Ident.string_of_t x ^ " = " ^ pretty_string_of_t e1 ^ " in " ^ pretty_string_of_t e2
       | LExpr le ->
         LambdaC.Expr.pretty_string_of_t le
       | Phase (a, t) -> "<" ^ LambdaC.Expr.pretty_string_of_t a ^ "> " ^ pretty_string_of_t t
@@ -94,17 +92,17 @@ let rec pretty_string_of_t e =
       | In2 (_,t) -> "in2(" ^ pretty_string_of_t t ^ ")"
       | CasePTensor (e, x1, t1, x2, t2) ->
         "case " ^ pretty_string_of_t e
-                ^ " of { in1 x" ^  string_of_int x1 ^ " -> " ^ pretty_string_of_t t1 
-                ^ " | in2 x" ^ string_of_int x2 ^ " -> " ^ pretty_string_of_t t2 ^ "}"
+                ^ " of { in1 x" ^  Ident.string_of_t x1 ^ " -> " ^ pretty_string_of_t t1 
+                ^ " | in2 x" ^ Ident.string_of_t x2 ^ " -> " ^ pretty_string_of_t t2 ^ "}"
 
       | Apply (f, e) -> "(" ^ pretty_string_of_pc f ^ ") @ (" ^ pretty_string_of_t e ^ ")"
       | Force e' -> pretty_string_of_p e'
   and pretty_string_of_pc f = match f with
-      | Lam (x, tp, e) -> "lambda x" ^ string_of_int x ^ " : " ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t e
+      | Lam (x, tp, e) -> "lambda x" ^ Ident.string_of_t x ^ " : " ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t e
   and pretty_string_of_p e = match e with
       | Suspend e' -> pretty_string_of_t e'
 
-  let rec rename_var (from : Variable.t) (to_ : Variable.t) e =
+  let rec rename_var (from : Ident.t) (to_ : Ident.t) e =
       match e with
       | Var x ->
           if x = from then Var to_ else Var x
@@ -153,11 +151,9 @@ end
 
 
 module HOAS = struct
-  let fresh = LambdaC.HOAS.fresh
-
-  let var (x : Variable.t) = Expr.Var x
+  let var (x : Ident.t) = Expr.Var x
   let letin e f =
-    let x = fresh() in
+    let x = Ident.fresh() in
     Expr.Let (e, x, f (var x))
   let vec a = Expr.LExpr a
   let phase a e = Expr.Phase(a, e)
@@ -167,12 +163,12 @@ module HOAS = struct
   let in1 e tp2 = Expr.In1 (e,tp2)
   let in2 tp1 e = Expr.In2 (tp1, e)
   let caseof e b1 b2 =
-    let x1 = fresh() in
-    let x2 = fresh() in
+    let x1 = Ident.fresh() in
+    let x2 = Ident.fresh() in
     Expr.CasePTensor(e, x1, b1 (var x1), x2, b2 (var x2))
 
   let lambda tp (f : Expr.t -> Expr.t) =
-      let x = fresh() in
+      let x = Ident.fresh() in
       Expr.Lam (x, tp, f (var x))
   let (@) e1 e2 = Expr.Apply (e1, e2)
 
@@ -258,13 +254,6 @@ end
 module Eval (S : SCALARS) = struct
   open S
   open Val
-
-  (* variable environment *)
-  module VarEnv = LambdaC.VariableEnvironment
-  let var_env : VarEnv.t ref = {contents = VarEnv.init}
-  let set_variable_environment (env : VarEnv.t) = var_env := env
-  let fresh () : Variable.t = VarEnv.fresh !var_env
-
 
   (* phase environment *)
 

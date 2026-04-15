@@ -68,12 +68,14 @@ let test_named_ast_seed_fresh_expr () =
       failf "Expected let-bound surface term, got %s\n"
         (LambdaPC_Surface.pretty_string_of_expr ast)
 
+(*
 let test_lambdapc_update_env_seeds_fresh () =
   let env = LambdaC.VariableEnvironment.create () in
   let pc = LambdaPC.Expr.Lam (9000, LambdaPC.Type.Pauli, LambdaPC.Expr.Var 9000) in
   LambdaPC.Expr.update_env_pc env pc;
   let x = LambdaPC.HOAS.fresh () in
   check bool "fresh is above LambdaPC binder" true (x > 9000)
+*)
 
 let suite =
   ["TestPCZ2", [
@@ -82,6 +84,6 @@ let suite =
     test_case "Parser accepts braced injections" `Quick test_parse_braced_injections;
     test_case "Parser reports resolve errors" `Quick test_parse_reports_resolve_errors;
     test_case "Named_ast seed_fresh seeds surface binders" `Quick test_named_ast_seed_fresh_expr;
-    test_case "LambdaPC update_env seeds freshness" `Quick test_lambdapc_update_env_seeds_fresh;
+    (*test_case "LambdaPC update_env seeds freshness" `Quick test_lambdapc_update_env_seeds_fresh;*)
     ];
   ] 

@@ -1,5 +1,6 @@
 (* top-level interface for interacting with LambdaPC via the interpreter or other *)
 include LambdaPC.HOAS
+open Ident
 
 module S2 = Scalars.Scalars (Scalars.FIN2)
 module LEval2 = LambdaC.Eval(S2.Zd)
@@ -42,8 +43,10 @@ let parse_with
         if lx = "" then "end of input" else Printf.sprintf "%S" lx
       in
       raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
-  | Resolve.Error { loc; msg } ->
+  | Resolve.Error { loc=Some loc; msg } ->
       raise (Parse_error (Util.loc_string_of_positions loc.sp loc.ep, msg))
+  | Resolve.Error { loc=None; msg } ->
+      raise (Parse_error ("Undefined Location", msg))
 
 let parse (s : string) : Named_ast.LambdaPC_Surface.expr =
   let lexbuf = Lexing.from_string s in
@@ -79,9 +82,9 @@ let eval e =
 let leval e =
   print_endline (LambdaC.Expr.pretty_string_of_t e ^ "\n->*\n");
   let eval_closed = match !dim with
-             | 2 -> LEval2.eval LambdaC.VariableMap.empty
-             | 3 -> LEval3.eval LambdaC.VariableMap.empty
-             | 4 -> LEval4.eval LambdaC.VariableMap.empty
+             | 2 -> LEval2.eval VariableMap.empty
+             | 3 -> LEval3.eval VariableMap.empty
+             | 4 -> LEval4.eval VariableMap.empty
              | d -> failwith @@ "Please add evaluation module for dimension " ^ string_of_int d ^ "\n"
   in
   let result = eval_closed e in
