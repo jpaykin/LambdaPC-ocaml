@@ -37,9 +37,11 @@ let test_expr_rename_var () =
   let x1 = Ident.fresh() in
   let x2 = Ident.fresh() in
   let x3 = Ident.fresh() in
-  let e1_test = Expr.(Lambda (x1, Unit, Plus (Var x1, Var x2))) in
+  let e1_test = Expr.(t_of_node (Lambda{x=x1; tp=HOAS.u; body=HOAS.(var x1 + var x2)})) in
+    (*Expr.(t_of_node (Lambda (x1, Unit, Plus (Var x1, Var x2)))) in*)
   let e1' = Expr.rename_var x2 x3 e1_test in
-  let e1_expected = Expr.Lambda(x1, Unit, Plus (Var x1, Var x3)) in
+  let e1_expected = Expr.(t_of_node (Lambda{x=x1; tp=HOAS.u; body=HOAS.(var x1 + var x3)})) in
+  (*let e1_expected = Expr.Lambda(x1, Unit, Plus (Var x1, Var x3)) in*)
   (* ensure only free occurrences renamed, bound var 1 unchanged *)
   check string "rename_var_free" (Expr.string_of_t e1') (Expr.string_of_t e1_expected);
 
@@ -48,23 +50,29 @@ let test_expr_rename_var () =
 
 let test_expr_map_and_val_map () =
   let x0 = Ident.fresh() in
-  let e1 = Expr.(Plus (Const 3, Scale (Const 2, Var x0))) in
+  let e1 = HOAS.(const 3 + const 2 * var x0) in
+  (*let e1 = Expr.(Plus (Const 3, Scale (Const 2, Var x0))) in*)
   let e1_mapped = Expr.map (fun x -> x + 1) e1 in
-  let e1_expected = Expr.(Plus (Const 4, Scale (Const 3, Var x0))) in
+  let e1_expected = HOAS.(const 4 + const 3 * var x0) in
+  (*let e1_expected = Expr.(Plus (Const 4, Scale (Const 3, Var x0))) in*)
   check string "expr_map" (Expr.string_of_t e1_mapped) (Expr.string_of_t e1_expected);
 
   let x1 = Ident.fresh() in
-  let v1 = Val.(Pair (Const 3, Val.Lambda (x1, Unit, Const 2))) in
+  let v1 = Val.(Pair (Const 3, Val.Lambda (x1, HOAS.u, HOAS.const 2))) in
   let v1_mapped = Val.map (fun x -> x * 2) v1 in
-  let v1_expected = Val.(Pair (Const 6, Lambda (x1, Unit, Const 4))) in
+  let v1_expected = Val.(Pair (Const 6, Lambda (x1, HOAS.u, HOAS.const 4))) in
   check string "val_map" (Val.string_of_t v1_mapped) (Val.string_of_t v1_expected)
 
 let test_vzero_vplus_vscale_case_apply () =
   let open Eval2 in
   (* vzero Unit = Const 0 *)
-  check string "vzero Unit" (Val.string_of_t (vzero Unit)) ("0");
-  (match vzero (Sum (Unit, Arrow(Unit,Unit))) with
-  | Val.Pair (Val.Const 0, Val.Lambda (_, Unit, Expr.Const 0)) -> ()
+  check string "vzero Unit" (Val.string_of_t (vzero (HOAS.u))) ("0");
+  (match vzero HOAS.(u ++ lolli u u) with
+  | Val.Pair (Val.Const 0, Val.Lambda (_, alpha, body)) ->
+    (match alpha.node, body.node with
+    | Unit, Const 0 -> ()
+    | _, _ -> failf "Unexpected vzero result\n"
+    )
   | v ->
       failf "Unexpected vzero result: %s\n" (Val.string_of_t v));
 
@@ -120,13 +128,13 @@ let suite =
 
       test_case "Testing function application" `Quick (fun () ->
         TestEval2.test_eval
-          HOAS.(lambda Unit (fun x -> x + x) @ (const 3))
+          HOAS.(lambda HOAS.u (fun x -> x + x) @ (const 3))
           HOAS.(const 6)
         );
 
       test_case "Testing case evaluation" `Quick (fun () ->
         TestEval2.test_eval
-          HOAS.(case (Expr.Pair(const 1, const 0))
+          HOAS.(case (pair (const 1) (const 0))
             (fun x1 -> x1)
             (fun _ -> const 11)
           )

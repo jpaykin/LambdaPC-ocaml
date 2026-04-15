@@ -1,14 +1,14 @@
 open LambdaPC.HOAS
 
 let const = LambdaC.HOAS.const
-let pauli r1 r2 = vec (LambdaC.Expr.Pair (const r1, const r2))
+let pauli r1 r2 = vec (LambdaC.HOAS.pair (const r1) (const r2))
 
 let pauliZ : LambdaPC.Expr.t = pauli 0 1
 let pauliX : LambdaPC.Expr.t = pauli 1 0
 let pauliY : LambdaPC.Expr.t = pauli 1 1
 let pauliI : LambdaPC.Expr.t = pauli 0 0
 
-let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
+let pauliI_ tp = vec (LambdaC.HOAS.zero ~ty:tp ())
 
 let id tp = lambda tp (fun q -> q)
 let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
