@@ -1,40 +1,13 @@
 open Scalars
 open Ident
 
-module Type : sig
-  type t = Unit | Sum of t * t | Arrow of t * t
-  val string_of_t : t -> string
-end
-
-module Expr : sig
-  type t =
-      Var of Ident.t
-    | Let of t * Ident.t * t
-    | Zero of Type.t
-    | Annot of t * Type.t
-    | Plus of t * t
-    | Const of int
-    | Scale of t * t
-    | Pair of t * t
-    | Case of t * Ident.t * t * Ident.t * t
-    | Lambda of Ident.t * Type.t * t
-    | Apply of t * t
-
-  val string_of_t : t -> string
-  val pretty_string_of_t : t -> string
-  val subst : Ident.t -> t -> t -> t
-  val rename_var : Ident.t -> Ident.t -> t -> t
-  val map : (int -> int) -> t -> t
-  val update_env : t -> unit
-  val alpha_equiv : t -> t -> bool
-end
-
-
+module Type = Ast.Type
+module Expr = Ast.Expr
 
 module HOAS : sig
 
   val var : Ident.t -> Expr.t
-  val zero : Type.t -> Expr.t
+  val zero : ?ty:Type.t -> unit -> Expr.t
   val (+) : Expr.t -> Expr.t -> Expr.t
   val const : int -> Expr.t
   val ( * ) : Expr.t -> Expr.t -> Expr.t
@@ -42,9 +15,10 @@ module HOAS : sig
   val lambda : Type.t -> (Expr.t -> Expr.t) -> Expr.t
   val (@) : Expr.t -> Expr.t -> Expr.t
   val pair : Expr.t -> Expr.t -> Expr.t
+  val u : Type.t
+  val (++) : Type.t -> Type.t -> Type.t
+  val lolli : Type.t -> Type.t -> Type.t
 
-
-  (* Helper functions for performing the symplectic form *)
 end
 
 module Val : sig
@@ -102,6 +76,7 @@ module Typing : sig
   val pp_info : (Type.t,Expr.t) TypeInformation.t -> unit
   val assert_arrow_type : Type.t -> Type.t * Type.t
   val assert_sum_type : Type.t -> Type.t * Type.t
+  val annot : Expr.t -> Type.t -> Expr.t
   val typecheck' : Type.t VariableMap.t -> Expr.t -> (Type.t,Expr.t) TypeInformation.t
   val typecheck : Expr.t -> (Type.t,Expr.t) TypeInformation.t
 end
