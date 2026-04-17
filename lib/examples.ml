@@ -8,7 +8,7 @@ let pauliX : LambdaPC.Expr.t = pauli 1 0
 let pauliY : LambdaPC.Expr.t = pauli 1 1
 let pauliI : LambdaPC.Expr.t = pauli 0 0
 
-let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
+let pauliI_ tp = vec (LambdaC.HOAS.zero (LambdaPC.Type.ltype_of_t tp))
 
 let id tp = lambda tp (fun q -> q)
 let hadamard = (*lambda Pauli (fun q -> caseofP q pauliZ pauliX)*)
@@ -20,7 +20,9 @@ let qft = (*lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))*)
 let phasegate = 
   Interface.pc @@
     "lambda q : Pauli. case q of { X -> Y | Z -> Z }"
-
+let phasegate_dag =
+  Interface.pc @@
+    "lambda q : Pauli. case q of { X -> <1>Y | Z -> Z }"
 
 exception IllFormedType
 
@@ -29,11 +31,18 @@ let rec ntensor (n : int) : LambdaPC.Type.t =
   if n = 1 then Pauli
   else PTensor (Pauli, ntensor (n-1))
 
-let rec in_n_i (n : int) (i : int) (t : LambdaPC.Expr.t) : LambdaPC.Expr.t =
+let rec in_ (n : int) (i : int) (t : LambdaPC.Expr.t) : LambdaPC.Expr.t =
   assert (n >= 1 && 0 <= i && i < n);
   if n = 1 then (*must be the case that i=0*) t
   else if i = 0 then in1 t (ntensor (n-1))
-  else in2 Pauli (in_n_i (n-1) (i-1) t)
+  else in2 Pauli (in_ (n-1) (i-1) t)
+let in_i_j n i j : LambdaPC.Expr.pc =
+  assert (0 <= i && i < n && 0 <= j && j < n && i <> j);
+  lambda (PTensor (Pauli,Pauli)) (fun q ->
+    caseof q
+      (fun qi -> in_ n i qi)
+      (fun qj -> in_ n j qj)
+  )
 
 (*
   Given t : Pauli^n, return
@@ -42,18 +51,35 @@ let rec in_n_i (n : int) (i : int) (t : LambdaPC.Expr.t) : LambdaPC.Expr.t =
 let rec match_in_i (n : int) (t : LambdaPC.Expr.t)
                    (f : int -> LambdaPC.Expr.t -> LambdaPC.Expr.t)
       : LambdaPC.Expr.t =
-    assert (n > 0);
+    (*assert (n > 0);*)
     let inc_f = fun j -> f (j + 1) in
     if n = 1
     then letin t (f 0)
     else caseof t (fun q0 -> f 0 q0) (fun q' -> match_in_i (n-1) q' inc_f)
 
 
+let in_pc n i (f : LambdaPC.Expr.pc) : LambdaPC.Expr.pc =
+  assert (0 <= i && i < n);
+  lambda (ntensor n) (fun q ->
+    match_in_i n q (fun j q0 -> 
+      if i=j then in_ n i (f @ q0)
+      else pauliI_ (ntensor n)
+    ))
+
+let in_pc_i_j n i j (f : LambdaPC.Expr.pc) : LambdaPC.Expr.pc =
+  assert (0 <= i && i < n && 0 <= j && j < n && i <> j);
+  lambda (ntensor n) (fun q ->
+    match_in_i n q (fun k q0 ->
+      if      k = i then in_i_j n i j @ (f @ in1 q0 Pauli)
+      else if k = j then in_i_j n i j @ (f @ in2 Pauli q0)
+      else pauliI_ (ntensor n)
+    ))
+
 let ptensor tp1 tp2 t1 t2 =
   (in1 t1 tp2) * (in2 tp1 t2)
 
 let pauliNegX2Y3 = phase (const 1) (
-    in_n_i 4 1 pauliX * in_n_i 4 2 pauliY
+    in_ 4 1 pauliX * in_ 4 2 pauliY
 )
 let pauliXY = in1 pauliX Pauli * in2 Pauli pauliY
 
@@ -63,6 +89,20 @@ let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
       (fun q2 -> in1 q2 tp1)
   )
 
+let input_type pc =
+  match pc with
+  | LambdaPC.Expr.Lam(_, tp, _) -> tp
+let seq pc1 pc2 =
+  lambda (input_type pc1) (fun q -> pc2 @ pc1 @ q)
+let par pc1 pc2 =
+  let tp1 = input_type pc1 in
+  let tp2 = input_type pc2 in
+  lambda (PTensor(tp1,tp2)) (fun q ->
+    caseof q
+      (fun q1 -> in1 (pc1 @ q1) tp2)
+      (fun q2 -> in2 tp1 (pc2 @ q2))
+    )
+
 (* parser is not working right
 let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }"
 *)
@@ -70,8 +110,8 @@ let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in
 let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
     caseof q
       (fun q1 -> caseofP q1
-                    (*Z->*) (in_n_i 2 0 pauliZ)
-                    (*X->*) (in_n_i 2 0 pauliX * in_n_i 2 1 pauliX)
+                    (*Z->*) (in_ 2 0 pauliZ)
+                    (*X->*) (in_ 2 0 pauliX * in_ 2 1 pauliX)
         )
       (fun q2 -> caseofP q2
                     (*Z->*) (in1 pauliZ Pauli * in2 Pauli pauliZ)
@@ -136,7 +176,7 @@ let evalTest () =
 
   (* this is the pauli to clifford - takes an expressiion and makes it a lambdaPc *)
   (*val pauli_to_Clifford: LambdaPC.Type.t -> LambdaPC.Expr.t -> LambdaPC.Expr.pc *)
-  let pauli_to_Clifford tp p =
+  let pauli_to_clifford tp p =
     lambda tp ( fun q -> 
       (* psi gets of rod of phase things and leaves u with just the vector *)
       (* omega acts on lambda c things which are ints. *)
