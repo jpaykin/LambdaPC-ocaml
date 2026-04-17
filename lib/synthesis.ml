@@ -48,6 +48,9 @@ let get_sqp_at (l : int) (v : LambdaPC.Val.t) : (int * int) =
 let reduce_weak (l : int) (pk : int * int) (qk : int * int) 
     (_gpk : int * int) (_gqk : int * int) : C.t =
   match (pk, qk) with
+  (* add the goals within the match statements
+  Look at ( pk, gpk) if those are not both the identy, then thast all you have to worry abt*)
+  (* in that case that those are the identy, you  *)
   (* Case 1: (P, I) — bring to (X, I) *)
   | ((1,0),(0,0)) -> C.empty     (* X,I -> already there *)
   | ((1,1),(0,0)) -> [C.Sdg l]   (* Y,I -> X,I *)
