@@ -11,10 +11,10 @@ let apply_eval (f : LambdaPC.Expr.pc) (arg : LambdaPC.Expr.t) : LambdaPC.Val.t =
 
 let to_tableau (n : int) (f : LambdaPC.Expr.pc) : tab =
   let destabilizers =
-    List.init n (fun i -> apply_eval f (in_n_i n i pauliX))
+    List.init n (fun i -> apply_eval f (in_ n i pauliX))
   in
   let stabilizers =
-    List.init n (fun i -> apply_eval f (in_n_i n i pauliZ))
+    List.init n (fun i -> apply_eval f (in_ n i pauliZ))
   in
   { stabilizers; destabilizers }
 
