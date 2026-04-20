@@ -17,3 +17,6 @@ val invert_gate : gate -> gate
 val dagger : t -> t
 val to_string_gate : gate -> string
 val to_string : t -> string
+
+val gate_to_pc : int -> gate -> LambdaPC.Expr.pc
+val circuit_to_pc : int -> t -> LambdaPC.Expr.pc

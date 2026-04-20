@@ -23,7 +23,7 @@ val pauliI : LambdaPC.Expr.t
 (** [pauliI_ tau] returns a LambdaPC expression representing
     the identity Pauli of type [tau]
 *)
-val pauliI_ : LambdaC.Type.t -> LambdaPC.Expr.t
+val pauliI_ : LambdaPC.Type.t -> LambdaPC.Expr.t
 
 (**
   Example projective Cliffords
@@ -33,6 +33,10 @@ val id : LambdaPC.Type.t -> LambdaPC.Expr.pc
 val hadamard : LambdaPC.Expr.pc
 val qft : LambdaPC.Expr.pc
 val phasegate : LambdaPC.Expr.pc
+val phasegate_dag : LambdaPC.Expr.pc
+
+val seq : LambdaPC.Expr.pc -> LambdaPC.Expr.pc -> LambdaPC.Expr.pc
+val par : LambdaPC.Expr.pc -> LambdaPC.Expr.pc -> LambdaPC.Expr.pc
 
 (* Length-indexed Pauli types *)
 
@@ -40,7 +44,24 @@ exception IllFormedType
 
 (** [ntensor n] returns the type [Pauli ** (Pauli ** ... )] *)
 val ntensor : int -> LambdaPC.Type.t
-val in_n_i : int -> int -> LambdaPC.Expr.t -> LambdaPC.Expr.t
+
+(** If [p] has type [Pauli] then [in_ n i p] returns [p_i] of type [ntensor n] *)
+val in_ : int -> int -> LambdaPC.Expr.t -> LambdaPC.Expr.t
+
+(** If [p] has type [Pauli ** Pauli] then [in_i_j n i j p] is a Pauli of type [ntensor n] *)
+val in_i_j : int -> int -> int -> LambdaPC.Expr.pc
+
+(** If [f] is a projective Clifford of type [|Pauli -o Pauli|]
+  * then [in_pc n i f] is a projective Clifford of type [|Pauli^n -o Pauli^n|]
+  *)
+val in_pc : int -> int -> LambdaPC.Expr.pc -> LambdaPC.Expr.pc
+
+(** If [f] is a projective Clifford of type [|Pauli**Pauli -o Pauli**Pauli|]
+  * and n >= 2,
+  * then [in_pc_i_j n i j f] is a projective Clifford of type [|Pauli^n -o Pauli^n|]
+  *)
+val in_pc_i_j : int -> int -> int -> LambdaPC.Expr.pc -> LambdaPC.Expr.pc
+
 val match_in_i :
   int ->
   LambdaPC.Expr.t -> (int -> LambdaPC.Expr.t -> LambdaPC.Expr.t) -> LambdaPC.Expr.t
@@ -51,6 +72,7 @@ val pauliNegX2Y3 : LambdaPC.Expr.t
 val pauliXY : LambdaPC.Expr.t
 val swap : LambdaPC.Type.t -> LambdaPC.Type.t -> LambdaPC.Expr.pc
 val cnot : LambdaPC.Expr.pc
+val pauli_to_clifford : LambdaPC.Type.t -> LambdaPC.Expr.t -> LambdaPC.Expr.pc
 module S2 : Scalars.SCALARS
 module Eval2 :
   sig

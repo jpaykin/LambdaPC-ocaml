@@ -47,3 +47,28 @@ let to_string (c : t) : string =
   | _ ->
       let body = String.concat "; " (List.map to_string_gate c) in
       "[ " ^ body ^ " ]"
+
+(*
+ * Parameters:
+ *    n - number of qubits
+ *    g - a gate on n qubits
+ * Returns
+ *    A projective Clifford of type |Pauli^n -o Pauli^n|
+ *    implementing the gate g
+*)
+let gate_to_pc (n : int) (g : gate) : LambdaPC.Expr.pc =
+  Examples.(match g with
+  | H q -> in_pc n q hadamard
+  | S q -> in_pc n q phasegate
+  | Sdg q -> in_pc n q phasegate_dag
+  | X q -> in_pc n q (pauli_to_clifford Pauli pauliX)
+  | Z q -> in_pc n q (pauli_to_clifford Pauli pauliZ)
+  | CNOT(q1,q2) -> in_pc_i_j n q1 q2 cnot
+  | SWAP (q1, q2) -> in_pc_i_j n q1 q2 (swap Pauli Pauli)
+  )
+
+let rec circuit_to_pc (n : int) (circ : t) : LambdaPC.Expr.pc =
+  Examples.(match circ with
+  | [] -> id (ntensor n)
+  | g::circ' -> seq (gate_to_pc n g) (circuit_to_pc n circ')
+  )
