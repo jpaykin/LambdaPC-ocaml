@@ -1,5 +1,6 @@
 open Examples
 open Tableau
+open LambdaC.HOAS
 module C = Circuit
 module T = Tableau
 
@@ -136,47 +137,7 @@ let reduce_weak (l : int) (pk : int * int) (qk : int * int)
   | _ -> failwith "reduce_strong: not a strong support"
 
   
-(*/////////////////////*)
-(*redce_weal *)
-(* takes in k, pk, qk, gpk, gqk*)
 
-(* output: a circuit c that takes in pk,qk, to gpk, gqk*)
-(* if the soucr is x, and the gola is z then hadmamrd and so on and so forth *)
-(* *)
-
-
-(*
-let reduce_sqp (l : int) (pj : int * int) (qj : int * int) : C.t =
-  match (pj, qj) with
-  (* Case 1: (P, I) — bring to (X, I) *)
-  | ((1,0),(0,0)) -> C.empty          (* X,I -> already there *)
-  | ((1,1),(0,0)) -> [C.Sdg l]        (* Y,I -> X,I *)
-  | ((0,1),(0,0)) -> [C.H l]          (* Z,I -> X,I *)
-  (* Case 2: (I, Q) — bring to (I, X) *)
-  | ((0,0),(1,0)) -> C.empty          (* I,X -> already there *)
-  | ((0,0),(1,1)) -> [C.Sdg l]        (* I,Y -> I,X *)
-  | ((0,0),(0,1)) -> [C.H l]          (* I,Z -> I,X *)
-  (* Case 3: (P, P) — bring to (X, X) *)
-  | ((1,0),(1,0)) -> C.empty          (* X,X -> already there *)
-  | ((1,1),(1,1)) -> [C.Sdg l]        (* Y,Y -> X,X *)
-  | ((0,1),(0,1)) -> [C.H l]          (* Z,Z -> X,X *)
-  | _ -> failwith "reduce_sqp: not a weak support"
-
-  *)
-
-(* detail in plain english sw_sn and it uses these helper functions*)
-(*/////////////////////*)
-
-(* 4 single qubits paulis *)
-(* sw_sn_goal:  p2 , q2 : SQP): ( sqp sqp sqp sqp) *)
-(* logic of sqp *)
-(* if p2 (0,0) is the identy we are in case 2  ( z,i,x,x)*)
-
-(* therefore the goal is z,i,x,x *)
-
-(*if q2 (0,0) is the identy is we are in case 1 so the goal is ( x,x,z,i)
-  ( p2 = p2, then case 3 x,x,y,x)
-*) 
 let sw_sn_goal (pk : int * int) (qk : int * int) 
     : (int * int) * (int * int) * (int * int) * (int * int) =
   match (pk, qk) with
@@ -216,6 +177,132 @@ let sw_to_sn (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t
   let cj = reduce_strong j pj qj gpj gqj in
   let ck = reduce_weak k pk qk gpk gqk in
   C.concat (C.concat cj ck) [C.CNOT (j, k)]
+
+
+let apply_circuit (c : C.t) (tab : T.tab) : T.tab =
+  (* how many qubits are*)
+  (* wouldnt need this just unsure of where we would be getting that int input from*)
+  let n = List.length tab.stabilizers in
+  (* this takes the circuit c, and converts the gates to be lambdaPC values *)
+  let f = circuit_to_pc n c in
+  {
+    stabilizers   = List.map (fun p -> apply_eval f (LambdaPC.Val.expr_of_t p)) tab.stabilizers;
+    destabilizers = List.map (fun p -> apply_eval f (LambdaPC.Val.expr_of_t p)) tab.destabilizers;
+  }
+
+(* 
+let apply_circuit_to_pauli 
+Takes a λPC expression f (produced by circuit_to_pc) and a Pauli p,  
+and actually runs f on p to get the resulting Pauli. This is the evaluation step 
+*)
+
+let apply_circuit_to_pauli (c : C.t) (n : int) (p : LambdaPC.Val.t) : LambdaPC.Val.t =
+  let f = circuit_to_pc n c in
+  Interface.Eval2.evalClosed LambdaPC.HOAS.(f @ LambdaPC.Val.expr_of_t p)
+
+let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
+  let n = List.length (val_to_list p.value) in
+  let s = ref (count_strong p q) in
+  let w = ref (count_weak p q) in
+  let c = ref C.empty in
+  let p = ref p in
+  let q = ref q in
+
+  (* Phase 1: more than one strong support *)
+  while !s > 1 do
+    let j = first_strong !p !q in
+    let k = second_strong !p !q in
+    let gates = ss_to_ww j k !p !q in
+    c := C.concat !c gates;
+    p := apply_circuit_to_pauli gates n !p;
+    q := apply_circuit_to_pauli gates n !q;
+    s := !s - 2;
+    w := !w + 2
+    (* i think this makes sense to add the two lines of p,q and the into of n  *)
+  done;
+
+(* Case 2: There is at least one Weak support *)
+(* now handling weak support *)
+
+  while !w > 0 do
+(* this strong support doesnt change *)
+
+    let j = first_strong !p !q in
+    let k = first_weak !p !q in
+    let gates = sw_to_sn j k !p !q in
+    c := C.concat !c gates;
+  (* swn_sn will return one  2 qubit gate, but will need to return the circuit *)
+    (*let (gate, p', q') = sw_to_sn j k !p !q in*)
+    (*let (gate, p', q') = sw_to_sn j k !p !q in*) 
+    p := apply_circuit_to_pauli gates n !p;
+    q := apply_circuit_to_pauli gates n !q;
+    w := !w - 1
+    (*p := p';
+    q := q';
+    w := !w - 1
+    *)
+  done;
+
+(* after both loops end we are left with one remaining qubit*)
+  let j = first_strong !p !q in
+(*check to see if this is the qubit we want, if not then we continue*)
+    if j <> i then
+(* apply a swap gate, to move the support from where it landed (J) *)
+    c := C.concat !c [C.SWAP (i, j)];
+!c
+(*/////////////////////////////////////////////////////////////////////////*)
+(* Synthesis *)
+(* Iterates synthesize_row over all stabilizer/destabilizer pairs, updating the tableau after each row *)
+let synthesis (tab : T.tab) : C.t =
+  let n = List.length tab.stabilizers in
+  let tab = ref tab in
+  let result = ref C.empty in
+  for i = 0 to n - 1 do
+    let p = List.nth (!tab).stabilizers i in
+    let q = List.nth (!tab).destabilizers i in
+    let c = synthesize_row i p q in
+    tab := apply_circuit !tab c;
+    result := C.concat !result c
+  done;
+  !result
+
+(*apply_circuit( Circuit, tableau) 
+Paramater: a circuit, a tableau, and an integer i (how mnay qubits are in the tab)
+Returns: a new tableau with the circuit applied to the i-th row of the input tableau, and all other rows updated accordingly
+*)
+
+(* ///////////////////// all code below is scrap for now*)
+  (*Takes a λPC expression f (produced by circuit_to_pc) and a Pauli p,  
+and actually runs f on p to get the resulting Pauli. 
+This is the evaluation step 
+  let apply_circuit_to_pauli (c : C.t) (n:int) (p : LambdaPC.Val.t) : LambdaPC.Val.t =
+    let f = circuit_to_pc n c in
+    let P_expr.LPC.Val.expr_of-t P 
+      apply_eval f p
+      q = Eval2.evalClosed (LambdaPC.HOAS.(f @ p)) in
+      (* where q is a lmabda pc expr*)
+      (* evaluation is the next step *)
+      (* we want Interface.Eval2.evalClosed*)
+      (* which should have teh type lambdapc.expr.t, lPC.Val.t*)
+      (* then this is our retrun*)
+  
+
+
+
+
+
+( two options( match statment call getting sqp atp)
+ or option 2: convert C to a lambda Pc expression, you can created a new lmabda pc function called F ( e=fp) and then eval that using the language .)
+
+within option 2, a circuit_to_pc & apply pc_to_pauli(f,p)
+Interface.eval( provide a lambda pc expression, something like apply fp)
+
+
+
+  (* let apply_circuit (c : C.t) (tab : T.tab) : T.tab = *) 
+ 
+  
+*)
 (* sw_sn
 (* Eliminates one weak support at qubit k, keeping strong support at j, via CNOT(j,k) *)
 let sw_to_sn (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
@@ -262,72 +349,44 @@ let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
 
   done;
   *)
-let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
-  let s = ref (count_strong p q) in
-  let w = ref (count_weak p q) in
-  let c = ref C.empty in
-  let p = ref p in
-  let q = ref q in
+  (*/////////////////////*)
+(*redce_weal *)
+(* takes in k, pk, qk, gpk, gqk*)
 
-  (* Phase 1: more than one strong support *)
-  while !s > 1 do
-    let j = first_strong !p !q in
-    let k = second_strong !p !q in
-    let gates = ss_to_ww j k !p !q in
-    c := C.concat !c gates;
-    s := !s - 2;
-    w := !w + 2
-  done;
-
-(* Case 2: There is at least one Weak support *)
-(* now handling weak support *)
-
-  while !w > 0 do
-(* this strong support doesnt change *)
-
-    let j = first_strong !p !q in
-    let k = first_weak !p !q in
-  (* swn_sn will return one  2 qubit gate, but will need to return the circuit *)
-    let (gate, p', q') = sw_to_sn j k !p !q in
-    c := C.concat !c [gate];
-    p := p';
-    q := q';
-    w := !w - 1
-  done;
-
-(* after both loops end we are left with one remaining qubit*)
-  let j = first_strong !p !q in
-(*check to see if this is the qubit we want, if not then we continue*)
-    if j <> i then
-(* apply a swap gate, to move the support from where it landed (J) *)
-    c := C.concat !c [C.SWAP (i, j)];
-!c
-(*/////////////////////////////////////////////////////////////////////////*)
-(* Synthesis *)
-(* Iterates synthesize_row over all stabilizer/destabilizer pairs, updating the tableau after each row *)
-let synthesis (tab : T.tab) : C.t =
-  let n = List.length tab.stabilizers in
-  let tab = ref tab in
-  let result = ref C.empty in
-  for i = 0 to n - 1 do
-    let p = List.nth !tab.stabilizers i in
-    let q = List.nth !tab.destabilizers i in
-    let c = synthesize_row i p q in
-    tab := apply_circuit !tab c;
-    result := C.concat !result c
-  done;
-  !result
+(* output: a circuit c that takes in pk,qk, to gpk, gqk*)
+(* if the soucr is x, and the gola is z then hadmamrd and so on and so forth *)
+(* *)
 
 
+(*
+let reduce_sqp (l : int) (pj : int * int) (qj : int * int) : C.t =
+  match (pj, qj) with
+  (* Case 1: (P, I) — bring to (X, I) *)
+  | ((1,0),(0,0)) -> C.empty          (* X,I -> already there *)
+  | ((1,1),(0,0)) -> [C.Sdg l]        (* Y,I -> X,I *)
+  | ((0,1),(0,0)) -> [C.H l]          (* Z,I -> X,I *)
+  (* Case 2: (I, Q) — bring to (I, X) *)
+  | ((0,0),(1,0)) -> C.empty          (* I,X -> already there *)
+  | ((0,0),(1,1)) -> [C.Sdg l]        (* I,Y -> I,X *)
+  | ((0,0),(0,1)) -> [C.H l]          (* I,Z -> I,X *)
+  (* Case 3: (P, P) — bring to (X, X) *)
+  | ((1,0),(1,0)) -> C.empty          (* X,X -> already there *)
+  | ((1,1),(1,1)) -> [C.Sdg l]        (* Y,Y -> X,X *)
+  | ((0,1),(0,1)) -> [C.H l]          (* Z,Z -> X,X *)
+  | _ -> failwith "reduce_sqp: not a weak support"
 
+  *)
 
- 
+(* detail in plain english sw_sn and it uses these helper functions*)
+(*/////////////////////*)
 
+(* 4 single qubits paulis *)
+(* sw_sn_goal:  p2 , q2 : SQP): ( sqp sqp sqp sqp) *)
+(* logic of sqp *)
+(* if p2 (0,0) is the identy we are in case 2  ( z,i,x,x)*)
 
+(* therefore the goal is z,i,x,x *)
 
-
-
-
-
-
-
+(*if q2 (0,0) is the identy is we are in case 1 so the goal is ( x,x,z,i)
+  ( p2 = p2, then case 3 x,x,y,x)
+*) 
