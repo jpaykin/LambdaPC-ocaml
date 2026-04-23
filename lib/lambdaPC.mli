@@ -40,6 +40,7 @@ module Val :
     type t = { phase : int; value : LambdaC.Val.t; }
     val string_of_t : t -> string
     val pure : LambdaC.Val.t -> t
+    val expr_of_t : t -> Expr.t
   end
 
 module HOAS : sig
