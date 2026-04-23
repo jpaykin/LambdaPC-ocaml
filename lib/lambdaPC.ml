@@ -148,6 +148,10 @@ module Val = struct
 
   let pure (v : LambdaC.Val.t) = { phase = 0; value = v }
 
+  let expr_of_t (v : t) : Expr.t =
+    Expr.Phase(LambdaC.HOAS.const v.phase,
+               Expr.LExpr (LambdaC.Val.expr_of_t v.value))
+
 end
 
 
