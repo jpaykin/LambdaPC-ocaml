@@ -1,79 +1,85 @@
-open Examples
 open Tableau
-open LambdaC.HOAS
 module C = Circuit
 module T = Tableau
 
-
-(* stub/dummy functions*)
+(* stub/dummy functions *)
 let count_strong _p _q = 0
 let count_weak _p _q = 0
 let first_strong _p _q = 0
 let second_strong _p _q = 0
 let first_weak _p _q = 0
-let ss_to_ww _j _k _p _q = ([], _p, _q)
-let sw_to_sn _j _k _p _q = (C.H 0, _p, _q)
 
-(* Purpose: Produce a quantum circuit that maps the Pauli pair (P,Q) to the specific target operators (Zi​,Xi​) at qubit i.*)
+(* ///////////////////////////////////////////// 
+   Goal: build a quantum circuit that maps a Pauli pair (P, Q)
+   to the target operators (Zi, Xi) at qubit i.
 
-(*//////////////////
- /order of functions
-///////////////////
-val_to_list
- get_sqp_at
- reduce_strong
- reduce_sqp
- ss_to_ww
- sw_to_sn
- synthesize_row
- synthesis
-*)
-
+   Functions order:
+     val_to_list
+     get_sqp_at
+     reduce_weak
+     reduce_strong
+     sw_sn_goal
+     ss_to_ww
+     sw_to_sn
+     apply_circuit
+     apply_circuit_to_pauli
+     synthesize_row
+     synthesis
+   ///////////////////////////////////////////// *)
 
 (* val to list*)
-(* Maps a Val.t pair encoding to a list of (x,z) Pauli coordinates *)
+(* Maps a nested pair Val.t encoding to a list of (x,z) Pauli coordinates *)
   let rec val_to_list (v : LambdaC.Val.t) : (int * int) list =
   match v with
   | LambdaC.Val.Pair (LambdaC.Val.Const x, LambdaC.Val.Const z) -> [(x, z)]
   | LambdaC.Val.Pair (v1, v2) -> val_to_list v1 @ val_to_list v2
   | _ -> failwith "val_to_list: invalid format"
 
-(* ///////////////////////////////////////////////////////////////////////// *)
-
-(* Returns the (x,z) Pauli pair at qubit index l *)
-(* get sqp at *) 
+(* get_sqp_at
+ Returns the (x,z) Pauli coordinate pair at qubit index l, 
+ from the list of pauli coordinates. *) 
 let get_sqp_at (l : int) (v : LambdaPC.Val.t) : (int * int) =
   let ls = val_to_list v.value in
   List.nth ls l
 
+
+(* reduce_weak
+   Returns a single-qubit Clifford circuit that rotates a
+   weak support qubit at index L from its current Pauli
+   pair (pk, qk) toward the target form.
+
+   Weak support cases:
+     Case 1 — (P, I): rotates P -> X, leaves Q = I
+     Case 2 — (I, Q): leaves P = I,  rotates Q -> X
+     Case 3 — (P, P): rotates both  -> (X, X)
+
+   Where: I=(0,0)  X=(1,0)  Y=(1,1)  Z=(0,1) *)
 let reduce_weak (l : int) (pk : int * int) (qk : int * int) 
     (_gpk : int * int) (_gqk : int * int) : C.t =
   match (pk, qk) with
-  (* add the goals within the match statements
-  Look at ( pk, gpk) if those are not both the identy, then thast all you have to worry abt*)
-  (* in that case that those are the identy, you  *)
   (* Case 1: (P, I) — bring to (X, I) *)
-  | ((1,0),(0,0)) -> C.empty     (* X,I -> already there *)
+  | ((1,0),(0,0)) -> C.empty     (* X,I -> X,I *)
   | ((1,1),(0,0)) -> [C.Sdg l]   (* Y,I -> X,I *)
   | ((0,1),(0,0)) -> [C.H l]     (* Z,I -> X,I *)
   (* Case 2: (I, Q) — bring to (I, X) *)
-  | ((0,0),(1,0)) -> C.empty     (* I,X -> already there *)
+  | ((0,0),(1,0)) -> C.empty     (* I,X -> I,X *)
   | ((0,0),(1,1)) -> [C.Sdg l]   (* I,Y -> I,X *)
   | ((0,0),(0,1)) -> [C.H l]     (* I,Z -> I,X *)
   (* Case 3: (P, P) — bring to (X, X) *)
-  | ((1,0),(1,0)) -> C.empty     (* X,X -> already there *)
+  | ((1,0),(1,0)) -> C.empty     (* X,X -> X,X *)
   | ((1,1),(1,1)) -> [C.Sdg l]   (* Y,Y -> X,X *)
   | ((0,1),(0,1)) -> [C.H l]     (* Z,Z -> X,X *)
   | _ -> failwith "reduce_weak: not a weak support"
 
-(* ///////////////////////////////////////////////////////////////////////// *)
+(* reduce_strong
+   Returns a single-qubit Clifford circuit that rotates a
+   strong support qubit at index l from (pj, qj) to the 
+   target (gpj, gqj).
+   Strong support where pj and qj anticommute. 
 
-(*reduce_strong*)
-(* Single-qubit Clifford gates to rotate strong support (pj,qj) -> (gpj,gqj) at qubit l *)
+   Where: I=(0,0)  X=(1,0)  Y=(1,1)  Z=(0,1) *)
   let reduce_strong (l : int) (pj : int * int) (qj : int * int) (gpj : int * int) (gqj : int * int) : C.t =
     match (pj, qj) with
-    (* i need to change the pattern matching *)
-    (* I (0,0), Z (1,1), X ( 1,0) , Y ( 1,1) *)
   (* (X,Z) -> * *)
   | ((1,0),(0,1)) ->
     (match (gpj,gqj) with
@@ -136,8 +142,9 @@ let reduce_weak (l : int) (pk : int * int) (qk : int * int)
     | _ -> failwith "reduce_strong: not a strong support")
   | _ -> failwith "reduce_strong: not a strong support"
 
-  
-
+(* sw_sn_goal
+   Given a weak-support pair (pk, qk) at qubit k, returns the
+   four target Paulis (gpj, gpk, gqj, gqk) for sw_to_sn. *)
 let sw_sn_goal (pk : int * int) (qk : int * int) 
     : (int * int) * (int * int) * (int * int) * (int * int) =
   match (pk, qk) with
@@ -146,13 +153,18 @@ let sw_sn_goal (pk : int * int) (qk : int * int)
   | (p, q) when p = q -> ((1,0),(1,0),(1,1),(1,0))  (* case 3: pk=qk → (X,X,Y,X) *)
   | _ -> failwith "sw_sn_goal: not a weak support"
 
+(* ss_to_ww
+   Reduces two strong support qubits j and k into two weak
+   support qubits via CNOT(j, k).
 
-(*/////////////////////*)
-(*ss_ww*)
-(* Merges two strong supports at qubits j,k into two weak supports via CNOT(j,k) *)
+   Steps:
+     1. Rotate qubit j: (pj,qj) -> (X, Y)  using reduce_strong
+     2. Rotate qubit k: (pk,qk) -> (X, Z)  using reduce_strong
+     3. Apply CNOT(j, k)
+
+   After CNOT, the strong support at j and k is reduced and
+   replaced by two weak supports. *)
 let ss_to_ww (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t  =
-  (* Find a circuit that takes (pj, qj) -> (X, Z) *)
-
   let pj = get_sqp_at j p in
   let qj = get_sqp_at j q in
   let pk = get_sqp_at k p in
@@ -166,8 +178,10 @@ let ss_to_ww (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t
 
     C.concat (C.concat cj ck) [C.CNOT (j, k)]
 
-(*/////////////////////*)
-
+(* sw_to_sn
+ takes a strong qubit j and a weak qubit k and eliminates
+ the weak support at k via CNOT(j, k).
+*)
 let sw_to_sn (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
   let pj = get_sqp_at j p in
   let qj = get_sqp_at j q in
@@ -178,29 +192,46 @@ let sw_to_sn (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t
   let ck = reduce_weak k pk qk gpk gqk in
   C.concat (C.concat cj ck) [C.CNOT (j, k)]
 
-
+(* apply_circuit
+   Applies circuit c to every row of the tableau,
+   returning an updated tableau. *)
 let apply_circuit (c : C.t) (tab : T.tab) : T.tab =
-  (* how many qubits are*)
-  (* wouldnt need this just unsure of where we would be getting that int input from*)
   let n = List.length tab.stabilizers in
-  (* this takes the circuit c, and converts the gates to be lambdaPC values *)
-  let f = circuit_to_pc n c in
+  let f = C.circuit_to_pc n c in
   {
     stabilizers   = List.map (fun p -> apply_eval f (LambdaPC.Val.expr_of_t p)) tab.stabilizers;
     destabilizers = List.map (fun p -> apply_eval f (LambdaPC.Val.expr_of_t p)) tab.destabilizers;
   }
 
-(* 
-let apply_circuit_to_pauli 
-Takes a λPC expression f (produced by circuit_to_pc) and a Pauli p,  
-and actually runs f on p to get the resulting Pauli. This is the evaluation step 
-*)
-
+(* apply_circuit_to_pauli
+   Applies circuit c to a single Pauli p and returns the
+   resulting Pauli value.
+   Converts c to a λPC expression f (by circuit_to_pc),
+   then evaluates f applied to p. *)
 let apply_circuit_to_pauli (c : C.t) (n : int) (p : LambdaPC.Val.t) : LambdaPC.Val.t =
-  let f = circuit_to_pc n c in
+  let f = Circuit.circuit_to_pc n c in
   Interface.Eval2.evalClosed LambdaPC.HOAS.(f @ LambdaPC.Val.expr_of_t p)
 
+(* synthesize_row
+   Synthesizes the circuit that maps the i-th 
+   Pauli pair (p, q) to (Zi, Xi) at qubit i.
+
+   Method:
+     Phase 1: Strong reduction:
+       While there are ≥ 2 strong support qubits, pick the
+       first two (j, k) and call ss_to_ww to merge them into
+       two weak supports. Repeat until ≤ 1 strong support.
+
+     Phase 2: Weak elimination:
+       While there are weak support qubits, pick the strong
+       qubit j and the first weak qubit k, call sw_to_sn to
+       absorb k into j. Repeat until no weak supports remain.
+
+     Phase 3:
+       If the single remaining strong support is not at qubit
+       i, apply SWAP(i, j) to move it into position. *)
 let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
+  
   let n = List.length (val_to_list p.value) in
   let s = ref (count_strong p q) in
   let w = ref (count_weak p q) in
@@ -208,7 +239,7 @@ let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
   let p = ref p in
   let q = ref q in
 
-  (* Phase 1: more than one strong support *)
+  (* Phase 1: reduce strong support count to at most 1 *)
   while !s > 1 do
     let j = first_strong !p !q in
     let k = second_strong !p !q in
@@ -218,41 +249,32 @@ let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
     q := apply_circuit_to_pauli gates n !q;
     s := !s - 2;
     w := !w + 2
-    (* i think this makes sense to add the two lines of p,q and the into of n  *)
   done;
 
-(* Case 2: There is at least one Weak support *)
-(* now handling weak support *)
-
+  (* Phase 2: eliminate all weak supports *)
   while !w > 0 do
-(* this strong support doesnt change *)
-
     let j = first_strong !p !q in
     let k = first_weak !p !q in
     let gates = sw_to_sn j k !p !q in
     c := C.concat !c gates;
-  (* swn_sn will return one  2 qubit gate, but will need to return the circuit *)
-    (*let (gate, p', q') = sw_to_sn j k !p !q in*)
-    (*let (gate, p', q') = sw_to_sn j k !p !q in*) 
     p := apply_circuit_to_pauli gates n !p;
     q := apply_circuit_to_pauli gates n !q;
     w := !w - 1
-    (*p := p';
-    q := q';
-    w := !w - 1
-    *)
+
   done;
 
-(* after both loops end we are left with one remaining qubit*)
+(* Phase 3: move the remaining strong support to qubit i *)
   let j = first_strong !p !q in
-(*check to see if this is the qubit we want, if not then we continue*)
     if j <> i then
-(* apply a swap gate, to move the support from where it landed (J) *)
     c := C.concat !c [C.SWAP (i, j)];
 !c
-(*/////////////////////////////////////////////////////////////////////////*)
-(* Synthesis *)
-(* Iterates synthesize_row over all stabilizer/destabilizer pairs, updating the tableau after each row *)
+(* synthesis
+   Top-level method for synthesizing a circuit for an entire tableau.
+   For each row i, calls synthesize_row to get the circuit that maps
+   the i-th Pauli pair to (Zi, Xi) at qubit i, applies that circuit to 
+   the tableau to update it, and concatenates the circuit to the result.
+   Returns the concatenated circuit for all rows. *) 
+
 let synthesis (tab : T.tab) : C.t =
   let n = List.length tab.stabilizers in
   let tab = ref tab in
@@ -261,132 +283,10 @@ let synthesis (tab : T.tab) : C.t =
     let p = List.nth (!tab).stabilizers i in
     let q = List.nth (!tab).destabilizers i in
     let c = synthesize_row i p q in
-    tab := apply_circuit !tab c;
+    tab := apply_circuit c !tab ;
     result := C.concat !result c
   done;
   !result
 
-(*apply_circuit( Circuit, tableau) 
-Paramater: a circuit, a tableau, and an integer i (how mnay qubits are in the tab)
-Returns: a new tableau with the circuit applied to the i-th row of the input tableau, and all other rows updated accordingly
-*)
-
-(* ///////////////////// all code below is scrap for now*)
-  (*Takes a λPC expression f (produced by circuit_to_pc) and a Pauli p,  
-and actually runs f on p to get the resulting Pauli. 
-This is the evaluation step 
-  let apply_circuit_to_pauli (c : C.t) (n:int) (p : LambdaPC.Val.t) : LambdaPC.Val.t =
-    let f = circuit_to_pc n c in
-    let P_expr.LPC.Val.expr_of-t P 
-      apply_eval f p
-      q = Eval2.evalClosed (LambdaPC.HOAS.(f @ p)) in
-      (* where q is a lmabda pc expr*)
-      (* evaluation is the next step *)
-      (* we want Interface.Eval2.evalClosed*)
-      (* which should have teh type lambdapc.expr.t, lPC.Val.t*)
-      (* then this is our retrun*)
-  
 
 
-
-
-
-( two options( match statment call getting sqp atp)
- or option 2: convert C to a lambda Pc expression, you can created a new lmabda pc function called F ( e=fp) and then eval that using the language .)
-
-within option 2, a circuit_to_pc & apply pc_to_pauli(f,p)
-Interface.eval( provide a lambda pc expression, something like apply fp)
-
-
-
-  (* let apply_circuit (c : C.t) (tab : T.tab) : T.tab = *) 
- 
-  
-*)
-(* sw_sn
-(* Eliminates one weak support at qubit k, keeping strong support at j, via CNOT(j,k) *)
-let sw_to_sn (j : int) (k : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
-  (* Find a circuit that takes (p, q) -> (X, Z) — strong support on qubit j *)
-  (* call sw_swn goals to get the goals *)
-  (* we call get sqp at forst*)
-  (* okay so the call of get sw_sn_ goal*)
-  (* we have s on j, and weak)*)
-  (*with strong support on.j and and no support on k. *)
-  (* call reduce string *)
-  let pj = get_sqp_at j p in
-  let qj = get_sqp_at j q in
-  let pk = get_sqp_at k p in
-  let qk = get_sqp_at k q in
-  let cj = reduce_strong j pj qj gpj gqj   in
-(* needs update *)
-  let ck = sqp_to_goal pk qk in
-  (* CNOT*)
-  C.concat (C.concat cj ck) [C.CNOT (j, k)]
-  *)
-(*/////////////////////////////////////////////////////////////////////////*)
-
-(* synthesize_row *)
-(*
-(* Builds a circuit concentrating all support onto a single qubit, then swaps it to qubit i *)
-let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
-  let s = ref (count_strong p q) in (* amount of strong supports in (p,q) *)
-  let w = ref (count_weak p q) in (* amount of weak supports in (p,q) *)
-  let c = ref C.empty in (* empty, will be where gates are held*)
-  let p = ref p in (* both p & q update as we index*)
-  let q = ref q in
-  while !s > 1 do
-    let j = first_strong !p !q in (*first quibit that has ss *)
-    let k = second_strong !p !q in (*2nd  quibit that has ss *)
-    let (gates, p', q') = ss_to_ww j k !p !q in
-    c := C.concat !c gates;
-    p := p';
-    (* := means what? *)
-    (* allocation?*)
-    q := q';
-
-    s := !s - 2;
-    w := !w + 2
-
-  done;
-  *)
-  (*/////////////////////*)
-(*redce_weal *)
-(* takes in k, pk, qk, gpk, gqk*)
-
-(* output: a circuit c that takes in pk,qk, to gpk, gqk*)
-(* if the soucr is x, and the gola is z then hadmamrd and so on and so forth *)
-(* *)
-
-
-(*
-let reduce_sqp (l : int) (pj : int * int) (qj : int * int) : C.t =
-  match (pj, qj) with
-  (* Case 1: (P, I) — bring to (X, I) *)
-  | ((1,0),(0,0)) -> C.empty          (* X,I -> already there *)
-  | ((1,1),(0,0)) -> [C.Sdg l]        (* Y,I -> X,I *)
-  | ((0,1),(0,0)) -> [C.H l]          (* Z,I -> X,I *)
-  (* Case 2: (I, Q) — bring to (I, X) *)
-  | ((0,0),(1,0)) -> C.empty          (* I,X -> already there *)
-  | ((0,0),(1,1)) -> [C.Sdg l]        (* I,Y -> I,X *)
-  | ((0,0),(0,1)) -> [C.H l]          (* I,Z -> I,X *)
-  (* Case 3: (P, P) — bring to (X, X) *)
-  | ((1,0),(1,0)) -> C.empty          (* X,X -> already there *)
-  | ((1,1),(1,1)) -> [C.Sdg l]        (* Y,Y -> X,X *)
-  | ((0,1),(0,1)) -> [C.H l]          (* Z,Z -> X,X *)
-  | _ -> failwith "reduce_sqp: not a weak support"
-
-  *)
-
-(* detail in plain english sw_sn and it uses these helper functions*)
-(*/////////////////////*)
-
-(* 4 single qubits paulis *)
-(* sw_sn_goal:  p2 , q2 : SQP): ( sqp sqp sqp sqp) *)
-(* logic of sqp *)
-(* if p2 (0,0) is the identy we are in case 2  ( z,i,x,x)*)
-
-(* therefore the goal is z,i,x,x *)
-
-(*if q2 (0,0) is the identy is we are in case 1 so the goal is ( x,x,z,i)
-  ( p2 = p2, then case 3 x,x,y,x)
-*) 
