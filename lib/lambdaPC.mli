@@ -9,6 +9,7 @@ module VariableMap = LambdaC.VariableMap
 module Expr :
   sig
     type t =
+    (* these are mutually recursive defintion *)
         Var of Variable.t
       | Annot of t * Type.t
       | Let of t * Variable.t * t
@@ -39,6 +40,7 @@ module Val :
     type t = { phase : int; value : LambdaC.Val.t; }
     val string_of_t : t -> string
     val pure : LambdaC.Val.t -> t
+    val expr_of_t : t -> Expr.t
   end
 
 module HOAS : sig
@@ -64,18 +66,18 @@ module SymplecticForm : sig
   val psi_of : Expr.t -> LambdaC.Expr.t
   val psi_of_pc : Expr.pc -> LambdaC.Expr.t
   val ccaseP : LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t
+  (** calculates the symplectic form and is thus used to capture the commutativity of Pauli encodings *)
   val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
 
-module PhaseEnvironment : (Zd : Scalars.Z_SIG) ->
+module PhaseEnvironment : functor (Zd : Scalars.Z_SIG) ->
     sig
       type t = Zd.t ref
       val init : t
       val add_phase : t -> Zd.t -> unit
       val add_integer_phase : t -> int -> unit
     end
-module Eval :
-  (S : Scalars.SCALARS) ->
+module Eval : functor (S : Scalars.SCALARS) ->
     sig
       module VarEnv = LambdaC.VariableEnvironment
       val var_env : VarEnv.t ref
