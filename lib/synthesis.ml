@@ -268,6 +268,7 @@ let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
     if j <> i then
     c := C.concat !c [C.SWAP (i, j)];
 !c
+
 (* synthesis
    Top-level method for synthesizing a circuit for an entire tableau.
    For each row i, calls synthesize_row to get the circuit that maps
@@ -290,3 +291,54 @@ let synthesis (tab : T.tab) : C.t =
 
 
 
+let is_strong (pk : LambdaC.Val.t) (qk : LambdaC.Val.t) : bool =
+  let sf = LambdaPC.Eval(Scalars.Z2).LEval.symplectic_form pk qk in
+  sf <> Scalars.Z2.zero
+
+let count_strong (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : int =
+  let ps = val_to_list p.value in
+  let qs = val_to_list q.value in
+  List.length (List.filter (fun (pk, qk) ->
+    is_strong 
+      (LambdaC.Val.Pair(LambdaC.Val.Const(fst pk), LambdaC.Val.Const(snd pk)))
+      (LambdaC.Val.Pair(LambdaC.Val.Const(fst qk), LambdaC.Val.Const(snd qk))))
+    (List.combine ps qs))
+
+    Omega: LPC.type.t 
+
+
+     let is_strong pk qk =
+
+hasStrong_support: LambdaPC.Val.t -> LambdaPC.Val.t -> bool
+has strong support  (int * int -> (int * int) -> bool
+
+what is the function we are calling, 
+
+
+  ls_of_strrong: prodouces an int list, takes in 2 paulis
+  ls_of_strong : ( int * int) list -> (int * int) list -> int list
+  ( implemneted by convert paulis itno int * int list 
+  iterate or recurive over the list), pattern matching over the list to tell iff that index has strong suppport or not. 
+    ( popping weak to move to strong list)
+
+  then ls of weak would function the same way.
+  Ls_of_strong 
+
+  let ls_of_strong (ps : (int * int) list) (qs : (int * int) list) : int list =
+  let rec go i ps qs =
+    match ps, qs with
+    | [], [] -> []
+    | pk :: ps_rest, qk :: qs_rest ->
+        if is_strong pk qk
+        then i :: go (i+1) ps_rest qs_rest
+        (* weak support, check to make sure its not the idenity*)
+        else      go (i+1) ps_rest qs_rest
+    | _ -> failwith "lists different lengths"
+  in
+  go 0 ps qs
+  
+(* add the specific type *)
+  let is_strong (px, pz) (qx, qz) : bool =
+  (px * qz + qx * pz) mod 2 <> 0
+
+  (* given two pauli ( intger pairs), determine if they have strong support)

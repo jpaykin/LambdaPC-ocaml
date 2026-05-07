@@ -16,7 +16,6 @@ val singleton : gate -> t
 (*val append : t -> t -> t*)
 val invert_gate : gate -> gate
 val dagger : t -> t
-(* unsure if this is right/needed*)
 val concat : t -> t -> t
 val to_string_gate : gate -> string
 val to_string : t -> string
