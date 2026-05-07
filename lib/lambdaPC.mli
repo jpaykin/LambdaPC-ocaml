@@ -66,7 +66,7 @@ module SymplecticForm : sig
   val psi_of : Expr.t -> LambdaC.Expr.t
   val psi_of_pc : Expr.pc -> LambdaC.Expr.t
   val ccaseP : LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t
-  (* this omega is used for the implmentation of the pauli to clifford*)
+  (** calculates the symplectic form and is thus used to capture the commutativity of Pauli encodings *)
   val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
 
