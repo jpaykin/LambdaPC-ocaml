@@ -1,230 +1,31 @@
 open Scalars
 open Ident
 
-module Type = struct
-
-  type t =
-      | Unit
-      | Sum of t * t
-      | Arrow of t * t
-
-  let rec string_of_t tp =
-          match tp with
-          | Unit -> "Unit"
-          | Sum (t1, t2) -> "Sum(" ^ string_of_t t1 ^ ", " ^ string_of_t t2 ^ ")"
-          | Arrow (t1, t2) -> "Arrow(" ^ string_of_t t1 ^ " -> " ^ string_of_t t2 ^ ")"
-
-end
-
-module Expr = struct
-
-  type t =
-      Var of Ident.t
-    | Let of t * Ident.t * t
-    | Zero of Type.t
-    | Annot of t * Type.t
-    | Plus of t * t
-    | Const of int
-    | Scale of t * t
-    | Pair of t * t
-    | Case of t * Ident.t * t * Ident.t * t
-    | Lambda of Ident.t * Type.t * t
-    | Apply of t * t
-
-    let rec string_of_t a =
-      match a with
-      | Var x -> "Var(" ^ Ident.string_of_t x ^ ")"
-      | Let (a1,x,a2) -> "Let(" ^ string_of_t a1 ^ ", " ^ Ident.string_of_t x ^ ", " ^ string_of_t a2 ^ ")"
-      | Zero tp -> "Zero(" ^ Type.string_of_t tp ^ ")"
-      | Annot (a, tp) -> "Annot( " ^ string_of_t a ^ ", " ^ Type.string_of_t tp ^ ")"
-      | Plus (a1, a2) -> "Plus(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
-      | Const c -> "Const(" ^ string_of_int c ^ ")"
-      | Scale (a1, a2) -> "Scale(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
-      | Pair (a1, a2) -> "Pair(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
-      | Case (scrut, x1, a1, x2, a2) ->
-          "Case(" ^ string_of_t scrut ^ ", " ^ Ident.string_of_t x1 ^ ", " ^ string_of_t a1 ^ ", " ^ Ident.string_of_t x2 ^ ", " ^ string_of_t a2 ^ ")"
-      | Lambda (x, tp, body) ->
-          "Lambda(" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ string_of_t body ^ ")"
-      | Apply (a1, a2) -> "Apply(" ^ string_of_t a1 ^ ", " ^ string_of_t a2 ^ ")"
-
-    
-    let rec pretty_string_of_t a =
-      match a with
-      | Var x -> "x" ^ Ident.string_of_t x
-      | Let (a1,x,a2) -> "let x" ^ Ident.string_of_t x ^ " = " ^ pretty_string_of_t a1 ^ " in " ^ pretty_string_of_t a2
-      | Zero tp -> "0{" ^ Type.string_of_t tp ^ "}"
-      | Annot (a, tp) -> "(" ^ pretty_string_of_t a ^ " : " ^ Type.string_of_t tp ^ ")"
-      | Plus (a1, a2) -> pretty_string_of_t a1 ^ " + " ^ pretty_string_of_t a2
-      | Const c -> string_of_int c
-      | Scale (a1, a2) -> pretty_string_of_t a1 ^ " * " ^ pretty_string_of_t a2
-      | Pair (Const 0, Const 0) -> "I"
-      | Pair (Const 1, Const 0) -> "X"
-      | Pair (Const 0, Const 1) -> "Z"
-      | Pair (Const 1, Const 1) -> "Y"
-      | Pair (a1, a2) -> "[" ^ pretty_string_of_t a1 ^ ", " ^ pretty_string_of_t a2 ^ "]"
-      | Case (scrut, x1, a1, x2, a2) ->
-          "case " ^ pretty_string_of_t scrut
-          ^ " of { x" ^ Ident.string_of_t x1 ^ " -> " ^ pretty_string_of_t a1 
-          ^ " | x" ^ Ident.string_of_t x2 ^ " -> " ^ pretty_string_of_t a2 ^ "}"
-      | Lambda (x, tp, body) ->
-          "lambda x" ^ Ident.string_of_t x ^ ":" ^ Type.string_of_t tp ^ ". " ^ pretty_string_of_t body
-      | Apply (a1, a2) -> pretty_string_of_t a1 ^ " @ " ^ pretty_string_of_t a2
-
-
-    (* NOT epxlicitly capture-avoiding, assumes NO reuse of variables *)
-    let rec subst (from : Ident.t) (to_ : t) (a : t) : t =
-      match a with
-      | Var x -> if x = from then to_ else Var x
-      | Let (a1,x,a2) ->
-        Let(subst from to_ a1,
-            x,
-            if x = from then a2 else subst from to_ a2)
-      | Zero tp -> Zero tp
-      | Annot (a, tp) -> Annot(subst from to_ a, tp)
-      | Const c -> Const c
-      | Plus (a1, a2) -> Plus (subst from to_ a1, subst from to_ a2)
-      | Scale (a1, a2) -> Scale (subst from to_ a1, subst from to_ a2)
-      | Pair (a1, a2) -> Pair (subst from to_ a1, subst from to_ a2)
-      | Case (scrut, x1, a1, x2, a2) ->
-          let a1' = if x1 = from then a1 else subst from to_ a1 in
-          let a2' = if x2 = from then a2 else subst from to_ a2 in
-          Case (subst from to_ scrut, x1, a1', x2, a2')
-      | Lambda (x, tp, body) ->
-          if x = from then Lambda (x, tp, body)
-          else Lambda (x, tp, subst from to_ body)
-      | Apply (a1, a2) -> Apply (subst from to_ a1, subst from to_ a2)
-    let rename_var x y e = subst x (Var y) e
-
-    (* Apply the function f to all constants in a *)
-    let rec map (f : int -> int) (a : t) : t =
-      match a with
-      | Var x -> Var x
-      | Let(a1,x,a2) -> Let (map f a1, x, map f a2)
-      | Zero tp -> Zero tp
-      | Annot (a', tp) -> Annot(map f a', tp)
-      | Plus (a1, a2) ->
-        Plus (map f a1, map f a2)
-      | Const c -> Const (f c)
-      | Scale (a1, a2) ->
-        Scale (map f a1, map f a2)
-      | Pair (a1, a2) ->
-        Pair (map f a1, map f a2)
-      | Case (a0, x1, a1, x2, a2) ->
-        Case (map f a0, x1, map f a1, x2, map f a2)
-      | Lambda (x, tp, a') ->
-        Lambda (x, tp, map f a')
-      | Apply (a1,a2) -> 
-        Apply (map f a1, map f a2)
-
-
-    (* Update env so its next fresh variable is not in a *)
-    let rec update_env a =
-      match a with
-      | Var x -> Ident.seed x
-      | Let(a1,x,a2) ->
-        Ident.seed x;
-        update_env a1;
-        update_env a2
-      | Zero _ -> ()
-      | Annot (a', _) -> update_env a'
-      | Plus (a1, a2) -> update_env a1; update_env a2
-      | Const _ -> ()
-      | Scale (a1, a2) -> update_env a1; update_env a2
-      | Pair (a1, a2) -> update_env a1; update_env a2
-      | Case (a', x1, a1', x2, a2') ->
-        update_env a';
-        Ident.seed x1;
-        Ident.seed x2;
-        update_env a1';
-        update_env a2'
-      | Lambda (x,_,a') ->
-        Ident.seed x;
-        update_env a'
-      | Apply (a1, a2) -> update_env a1; update_env a2
-
-
-    let bind_binders env_lr env_rl (xl : Ident.t) (xr : Ident.t) =
-      let l = VariableMap.find_opt xl env_lr in
-      let r = VariableMap.find_opt xr env_rl in
-      match l, r with
-      | None, None ->
-          Some (
-            VariableMap.add xl xr env_lr,
-            VariableMap.add xr xl env_rl
-          )
-      | Some xr', Some xl' when Ident.equal xr xr' && Ident.equal xl xl' ->
-          Some (env_lr, env_rl)
-      | _, _ ->
-          None
-
-    (* alpha equivalence with explicit binder correspondence; does not allocate fresh ids *)
-    let rec alpha_equiv' env_lr env_rl a1 a2 =
-      match a1, a2 with
-      | Var x1, Var x2 ->
-        (match VariableMap.find_opt x1 env_lr, VariableMap.find_opt x2 env_rl with
-         | Some x2', Some x1' -> Ident.equal x2 x2' && Ident.equal x1 x1'
-         | None, None -> Ident.equal x1 x2
-         | _, _ -> false)
-      | Let (a11, x1, a12), Let (a21, x2, a22) ->
-        alpha_equiv' env_lr env_rl a11 a21
-        &&
-        (match bind_binders env_lr env_rl x1 x2 with
-         | Some (env_lr', env_rl') -> alpha_equiv' env_lr' env_rl' a12 a22
-         | None -> false)
-      | Zero tp1, Zero tp2 ->
-        tp1 = tp2
-      | Annot (a1', tp1), Annot (a2', tp2) ->
-        tp1 = tp2 && alpha_equiv' env_lr env_rl a1' a2'
-      | Annot (a1', _), _ ->
-        alpha_equiv' env_lr env_rl a1' a2
-      | _, Annot (a2', _) ->
-        alpha_equiv' env_lr env_rl a1 a2'
-      | Plus (a11, a12), Plus (a21, a22)
-      | Scale (a11, a12), Scale (a21, a22)
-      | Pair (a11, a12), Pair (a21, a22)
-      | Apply (a11, a12), Apply (a21, a22) ->
-        alpha_equiv' env_lr env_rl a11 a21 && alpha_equiv' env_lr env_rl a12 a22
-      | Const v1, Const v2 ->
-        v1 = v2
-      | Case (scrut1, x11, a11, x12, a12), Case (scrut2, x21, a21, x22, a22) ->
-        alpha_equiv' env_lr env_rl scrut1 scrut2
-        &&
-        (match bind_binders env_lr env_rl x11 x21, bind_binders env_lr env_rl x12 x22 with
-         | Some (env_lr1, env_rl1), Some (env_lr2, env_rl2) ->
-           alpha_equiv' env_lr1 env_rl1 a11 a21
-           && alpha_equiv' env_lr2 env_rl2 a12 a22
-         | _, _ -> false)
-      | Lambda (x1, tp1, body1), Lambda (x2, tp2, body2) ->
-        tp1 = tp2
-        &&
-        (match bind_binders env_lr env_rl x1 x2 with
-         | Some (env_lr', env_rl') -> alpha_equiv' env_lr' env_rl' body1 body2
-         | None -> false)
-      | _, _ -> false
-
-    let alpha_equiv a1 a2 =
-      alpha_equiv' VariableMap.empty VariableMap.empty a1 a2
-
-  end
+module Type = Ast.Type
+module Expr = Ast.Expr
 
 module HOAS = struct
 
-  let var x = Expr.Var x
-  let zero tp = Expr.Zero tp
-  let (+) a1 a2 = Expr.Plus (a1,a2)
-  let const x = Expr.Const x
-  let ( * ) a1 a2 = Expr.Scale (a1,a2)
+  let var x : Expr.t = Expr.t_of_node (Var x)
+  let zero ?ty:ty_opt () : Expr.t = Expr.t_of_node ~loc:None ~ty:ty_opt Expr.Zero
+  let (+) a1 a2 = Expr.t_of_node (Expr.Plus (a1,a2))
+  let const x = Expr.t_of_node (Expr.Const x)
+  let ( * ) a1 a2 = Expr.t_of_node (Expr.Scale (a1,a2))
   let case a fx fz =
       let x = Ident.fresh() in
       let z = Ident.fresh() in
-      Expr.Case(a, x, fx (var x), z, fz (var z))
+      Expr.t_of_node (Expr.Case{scrut=a; x1=x; a1=fx (var x); x2=z; a2=fz (var z)})
   
   let lambda tp (f : Expr.t -> Expr.t) =
       let x = Ident.fresh() in
-      Expr.Lambda (x, tp, f (var x))
+      Expr.t_of_node (Expr.Lambda{x; tp; body=f (var x)})
 
-  let (@) a1 a2 = Expr.Apply (a1, a2)
-  let pair a1 a2 = Expr.Pair (a1,a2)
+  let (@) a1 a2 = Expr.t_of_node (Expr.App (a1, a2))
+  let pair a1 a2 = Expr.t_of_node (Expr.Pair (a1,a2))
+
+  let u = Type.t_of_node Unit
+  let (++) alpha1 alpha2 = Type.t_of_node (Sum (alpha1, alpha2))
+  let lolli alpha1 alpha2 = Type.t_of_node (Arrow (alpha1, alpha2))
 
 end
 
@@ -256,9 +57,9 @@ module Val = struct
 
     let rec expr_of_t v =
       match v with
-      | Const c -> Expr.Const c
-      | Pair (v1, v2) -> Expr.Pair (expr_of_t v1, expr_of_t v2)
-      | Lambda (x, tp, a) -> Expr.Lambda (x, tp, a)
+      | Const c -> HOAS.const c
+      | Pair (v1, v2) -> HOAS.pair (expr_of_t v1) (expr_of_t v2)
+      | Lambda (x, tp, a) -> Expr.t_of_node (Expr.Lambda {x; tp; body=a})
 
 
     let rec map (f : int -> int) (v : t) : t =
@@ -273,8 +74,8 @@ module Val = struct
 
 module Eval (Zd : Z_SIG) = struct
 
-  let rec vzero (ltp : Type.t) =
-    match ltp with
+  let rec vzero (ltp : Type.t) : Val.t =
+    match ltp.node with
     | Unit -> Val.Const 0
     | Sum (ltp1, ltp2) ->
         let v1 = vzero ltp1 in
@@ -296,7 +97,7 @@ module Eval (Zd : Z_SIG) = struct
             let fresh_x = Ident.fresh() in
             let a1' = Expr.rename_var x1 fresh_x a1 in
             let a2' = Expr.rename_var x2 fresh_x a2 in
-            Val.Lambda (fresh_x, tp1, Expr.Plus (a1', a2'))
+            Val.Lambda (fresh_x, tp1, HOAS.(a1' + a2'))
         else
             failwith "vplus: Lambda types do not match"
     | _, _ -> failwith "vplus: mismatched values"
@@ -305,17 +106,20 @@ module Eval (Zd : Z_SIG) = struct
     match v2 with
     | Val.Const c -> Val.Const (v1 * c)
     | Val.Pair (a, b) -> Val.Pair (vscale v1 a, vscale v1 b)
-    | Val.Lambda (x, tp, a) -> Val.Lambda (x, tp, Scale (Const v1, a))
+    | Val.Lambda (x, tp, a) -> Val.Lambda (x, tp, HOAS.(const v1 * a))
 
   let rec eval (ctx : Val.t VariableMap.t) (a : Expr.t) : Val.t =
-    match a with
+    match a.node with
     | Var x -> (try VariableMap.find x ctx with Not_found -> failwith "Unbound variable")
-    | Let(a1,x,a2) ->
-      let v = eval ctx a1 in
+    | Let{x;a;body} ->
+      let v = eval ctx a in
       let ctx' = VariableMap.add x v ctx in
-      eval ctx' a2
-    | Zero tp -> vzero tp
-    | Annot (a', _) -> eval ctx a'
+      eval ctx' body
+    | Zero -> 
+      (match a.ty with
+      | Some tp -> vzero tp
+      | None    -> failwith "No type annotation found for Zero"
+      )
     | Const c -> Val.Const (Zd.normalize c)
     | Plus (a1, a2) -> vplus (eval ctx a1) (eval ctx a2)
     | Scale (a1, a2) ->
@@ -323,15 +127,15 @@ module Eval (Zd : Z_SIG) = struct
         | Val.Const c -> vscale c (eval ctx a2)
         | _ -> failwith "Scale: first argument must be a scalar")
     | Pair (a1, a2) -> Val.Pair (eval ctx a1, eval ctx a2)
-    | Case (scrut, x1, a1, x2, a2) ->
+    | Case {scrut; x1; a1; x2; a2} ->
         (match eval ctx scrut with
         | Val.Pair (v1, v2) ->
             let ctx1 = VariableMap.add x1 v1 ctx in
             let ctx2 = VariableMap.add x2 v2 ctx in
             vplus (eval ctx1 a1) (eval ctx2 a2)
         | _ -> failwith "Case: scrutinee must be a pair")
-    | Lambda (x, tp, body) -> Val.Lambda (x, tp, body)
-    | Apply (a1, a2) ->
+    | Lambda {x; tp; body} -> Val.Lambda (x, tp, body)
+    | App (a1, a2) ->
         (match eval ctx a1 with
         | Val.Lambda (x, _tp, body) ->
             let arg = eval ctx a2 in
@@ -439,48 +243,45 @@ module Typing = struct
   let assert_type = TypeInformation.assert_type Type.string_of_t
 
   let assert_arrow_type (alpha : Type.t) : Type.t * Type.t =
-    match alpha with
+    match alpha.node with
     | Type.Arrow (alpha1, alpha2) -> (alpha1, alpha2)
     | _ -> terr @@ "Expected an arrow type, received: " ^ Type.string_of_t alpha
 
   let assert_sum_type (alpha : Type.t) : Type.t * Type.t =
-    match alpha with
+    match alpha.node with
     | Type.Sum (alpha1, alpha2) -> (alpha1, alpha2)
     | _ -> terr @@ "Expected a sum type, received: " ^ Type.string_of_t alpha
 
+  let annot (a : Expr.t) (tp : Type.t) : Expr.t =
+    match a.ty with
+    | Some tp0 -> assert_type tp tp0; a
+    | None -> { a with ty=Some tp }
+
   let rec typecheck' (ctx : Type.t VariableMap.t) (a : Expr.t) : type_information = 
-    match a with
+    match a.node with
     | Var x ->
       {
-        expr = Var x;
+        expr = HOAS.var x;
         tp = type_of_var ctx x;
         usage = var_usage x
       }
 
-    | Let (a1,x,a2) ->
-      let info1 = typecheck' ctx a1 in
+    | Let {x;a;body} ->
+      let info1 = typecheck' ctx a in
       let ctx' = VariableMap.add x info1.tp ctx in
-      let info2 = typecheck' ctx' a2 in
+      let info2 = typecheck' ctx' body in
       {
-        expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
+        expr = Expr.t_of_node (Let{x; a=annot (info1.expr) (info1.tp); body=info2.expr});
         tp = info2.tp;
         usage = disjoint_usage_with info1 x info2
       }
 
-    | Zero tp ->
+    | Zero ->
+      let tp = (match a.ty with Some tp -> tp | None -> terr "No type associated with Zero") in
       {
-        expr = Zero tp;
-        tp = tp;
+        expr = HOAS.zero ~ty:tp ();
+        tp;
         usage = fun u1 u2 -> IdentSet.subset u2 u1
-      }
-
-    | Annot (a',alpha) ->
-      let info' = typecheck' ctx a' in
-      assert_type alpha info'.tp;
-      {
-        expr = Annot(info'.expr, alpha);
-        tp = alpha;
-        usage = info'.usage
       }
 
     | Plus (a1,a2) ->
@@ -488,24 +289,24 @@ module Typing = struct
       let info2 = typecheck' ctx a2 in
       assert_type info1.tp info2.tp;
       {
-        expr = Plus (info1.expr, info2.expr);
+        expr = HOAS.(info1.expr + info2.expr);
         tp = info1.tp;
         usage = same_usage info1 info2
       }
 
     | Const r ->
       {
-        expr = Const r;
-        tp = Unit;
+        expr = HOAS.const r;
+        tp = Type.t_of_node Unit;
         usage = IdentSet.equal
       }
 
     | Scale (a1,a2) ->
       let info1 = typecheck' ctx a1 in
-      assert_type Unit info1.tp;
+      assert_type (Type.t_of_node Unit) info1.tp;
       let info2 = typecheck' ctx a2 in
       {
-        expr = Scale(info1.expr, info2.expr);
+        expr = HOAS.(info1.expr * info2.expr);
         tp = info2.tp;
         usage = disjoint_usage info1 info2
       }
@@ -514,13 +315,13 @@ module Typing = struct
       let info1 = typecheck' ctx a1 in
       let info2 = typecheck' ctx a2 in
       {
-        expr = Pair (info1.expr, info2.expr);
-        tp = Sum (info1.tp, info2.tp);
+        expr = HOAS.pair (info1.expr) (info2.expr);
+        tp = HOAS.(info1.tp ++ info2.tp);
         usage = same_usage info1 info2
       }
 
-    | Case(a',x1,a1,x2,a2) ->
-      let info' = typecheck' ctx a' in
+    | Case{scrut;x1;a1;x2;a2} ->
+      let info' = typecheck' ctx scrut in
       let (tp1,tp2) = assert_sum_type info'.tp in
       let ctx1 = VariableMap.add x1 tp1 ctx in
       let ctx2 = VariableMap.add x2 tp2 ctx in
@@ -529,28 +330,28 @@ module Typing = struct
       let info2 = typecheck' ctx2 a2 in
       assert_type info1.tp info2.tp;
       {
-        expr = Case(Annot(info'.expr, info'.tp),x1,info1.expr, x2, info2.expr);
+        expr = Expr.t_of_node (Case{scrut = annot info'.expr info'.tp;x1;a1=info1.expr; x2; a2=info2.expr});
         tp = info1.tp;
         usage = disjoint_usage_branch info' x1 info1 x2 info2
       }
 
-    | Lambda (x,alpha,a') ->
-      let info' = typecheck' (VariableMap.add x alpha ctx) a' in
+    | Lambda {x;tp=alpha;body} ->
+      let info' = typecheck' (VariableMap.add x alpha ctx) body in
       {
-        expr = Lambda (x, alpha, info'.expr);
-        tp = Arrow(alpha,info'.tp);
+        expr = Expr.t_of_node (Lambda {x; tp=alpha; body=info'.expr});
+        tp = HOAS.lolli alpha info'.tp;
         usage = fun u1 u2 ->
           not IdentSet.(mem x (union u1 u2))
           && info'.usage (IdentSet.add x u1) u2
       }
 
-    | Apply (a1,a2) ->
+    | App (a1,a2) ->
       let info1 = typecheck' ctx a1 in
       let info2 = typecheck' ctx a2 in
       let (tp1,tp2) = assert_arrow_type info1.tp in
       assert_type tp1 info2.tp;
       {
-        expr = Apply (Annot (info1.expr,info1.tp), info2.expr);
+        expr = HOAS.(annot info1.expr info1.tp @ info2.expr);
         tp = tp2;
         usage = disjoint_usage info1 info2
       }

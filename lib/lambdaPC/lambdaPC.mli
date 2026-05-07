@@ -1,30 +1,47 @@
 open Ident
 
 module Type : sig
-    type t = Pauli | PTensor of t*t
+    type t = { loc : Loc.t option; node : node }
+    and node =
+      | Pauli
+      | PTensor of t * t
+    
+    
+    val pauli : t
+    val ( ** ) : t -> t -> t
+
+    val t_of_node : node -> t
     val ltype_of_t : t -> LambdaC.Type.t
     val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
 module Expr :
   sig
-    type t =
-        Var of Ident.t
-      | Annot of t * Type.t
-      | Let of t * Ident.t * t
+    type t = { loc : Loc.t option; ty : Type.t option; node : node }
+    and node =
+      | Var of Ident.t
+      | Let of { x : Ident.t; expr : t; body : t }
       | LExpr of LambdaC.Expr.t
       | Phase of LambdaC.Expr.t * t
       | Prod of t * t
       | Pow of t * LambdaC.Expr.t
-      | CasePauli of t * t * t
-      | In1 of t * Type.t
-      | In2 of Type.t * t
-      | CasePTensor of t * Ident.t * t * Ident.t * t
-      | Apply of pc * t
+      | CasePauli of { scrut : t; tx : t; tz : t }
+      | In1 of { tp : Type.t; v : t }
+      | In2 of { tp : Type.t; v : t }
+      | CasePTensor of { scrut : t; x1 : Ident.t; t1 : t; x2 : Ident.t; t2 : t }
+      | App of pc * t
       | Force of p
-    and pc = Lam of (Ident.t * Type.t * t)
-    and p = Suspend of t
+    
+    and pc = { loc : Loc.t option; ty : (Type.t * Type.t) option; node : pc_node }
+    and pc_node = Lam of { x : Ident.t; tp : Type.t; body : t }
+    
+    and p = { loc : Loc.t option; ty : Type.t option; node : p_node }
+    and p_node = Suspend of t
 
+    val t_of_node : node -> t
+    val pc_of_node : pc_node -> pc
+    val p_of_node : p_node -> p
+    
     val string_of_t : t -> string
     val string_of_pc : pc -> string
     val string_of_p : p -> string

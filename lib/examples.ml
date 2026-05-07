@@ -1,23 +1,24 @@
 open LambdaPC.HOAS
+open LambdaPC
 
 let const = LambdaC.HOAS.const
-let pauli r1 r2 = vec (LambdaC.Expr.Pair (const r1, const r2))
+let pauli r1 r2 = vec (LambdaC.HOAS.pair (const r1) (const r2))
 
 let pauliZ : LambdaPC.Expr.t = pauli 0 1
 let pauliX : LambdaPC.Expr.t = pauli 1 0
 let pauliY : LambdaPC.Expr.t = pauli 1 1
 let pauliI : LambdaPC.Expr.t = pauli 0 0
 
-let pauliI_ tp = vec (LambdaC.HOAS.zero tp)
+let pauliI_ tp = vec (LambdaC.HOAS.zero ~ty:tp ())
 
 let id tp = lambda tp (fun q -> q)
-let hadamard = lambda Pauli (fun q -> caseofP q pauliZ pauliX)
+let hadamard = lambda Type.pauli (fun q -> caseofP q pauliZ pauliX)
 (*   Interface.pc @@ *)
 (*     "lambda q : Pauli . case q of { X -> Z | Z -> X }" *)
-let qft = lambda Pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))
+let qft = lambda Type.pauli (fun q -> caseofP q pauliZ (pow pauliX (const (-1))))
   (* Interface.pc @@ *)
   (*   "lambda q : Pauli. case q of { Z -> X^{-1} | X -> Z }" *)
-let phasegate = lambda Pauli (fun q -> caseofP q pauliX pauliY)
+let phasegate = lambda Type.pauli (fun q -> caseofP q pauliX pauliY)
   (* Interface.pc @@ *)
   (*   "lambda q : Pauli. case q of { X -> Y | Z -> Z }" *)
 
@@ -26,14 +27,14 @@ exception IllFormedType
 
 let rec ntensor (n : int) : LambdaPC.Type.t =
   assert (n >= 1);
-  if n = 1 then Pauli
-  else PTensor (Pauli, ntensor (n-1))
+  if n = 1 then Type.pauli
+  else Type.(pauli ** ntensor (n-1))
 
 let rec in_n_i (n : int) (i : int) (t : LambdaPC.Expr.t) : LambdaPC.Expr.t =
   assert (n >= 1 && 0 <= i && i < n);
   if n = 1 then (*must be the case that i=0*) t
   else if i = 0 then in1 t (ntensor (n-1))
-  else in2 Pauli (in_n_i (n-1) (i-1) t)
+  else in2 Type.pauli (in_n_i (n-1) (i-1) t)
 
 (*
   Given t : Pauli^n, return
@@ -54,9 +55,9 @@ let ptensor tp1 tp2 t1 t2 =
 let pauliNegX2Y3 = phase (const 1) (
     in_n_i 4 1 pauliX * in_n_i 4 2 pauliY
 )
-let pauliXY = in1 pauliX Pauli * in2 Pauli pauliY
+let pauliXY = in1 pauliX Type.pauli * in2 Type.pauli pauliY
 
-let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
+let swap tp1 tp2 = lambda Type.(tp1 ** tp2) (fun q ->
     caseof q
       (fun q1 -> in2 tp2 q1)
       (fun q2 -> in1 q2 tp1)
@@ -64,15 +65,15 @@ let swap tp1 tp2 = lambda (PTensor (tp1, tp2)) (fun q ->
 
 (* let swap2 = Interface.pc @@ "lambda q : Pauli ** Pauli. case q of { in1 x -> (in2 x) | in2 y -> (in1 y) }" *)
 
-let cnot = lambda (PTensor (Pauli, Pauli)) (fun q ->
+let cnot = lambda Type.(pauli ** pauli) (fun q ->
     caseof q
       (fun q1 -> caseofP q1
                     (*Z->*) (in_n_i 2 0 pauliZ)
                     (*X->*) (in_n_i 2 0 pauliX * in_n_i 2 1 pauliX)
         )
       (fun q2 -> caseofP q2
-                    (*Z->*) (in1 pauliZ Pauli * in2 Pauli pauliZ)
-                    (*X->*) (in2 Pauli pauliX)
+                    (*Z->*) (in1 pauliZ Type.pauli * in2 Type.pauli pauliZ)
+                    (*X->*) (in2 Type.pauli pauliX)
         )
   )
 
@@ -102,7 +103,7 @@ let cnot =
     }
   "
   *)
-let _bad_example = lambda Pauli (fun q ->
+let _bad_example = lambda Type.pauli (fun q ->
   caseofP q pauliZ pauliZ
   )
 
@@ -133,10 +134,10 @@ let evalTest () =
   eval (pauliX * pauliX);
   eval (hadamard @ pauliY);
   eval (qft @ pauliY);
-  eval (swap Pauli Pauli @ pauliXY);
+  eval (swap Type.pauli Type.pauli @ pauliXY);
   (* eval (cnot1 @ pauliXY); *)
-  eval (in2 Pauli (in1 pauliX (PTensor (Pauli, Pauli))));
-  eval (swap Pauli (ntensor 3) @ pauliNegX2Y3);
+  eval (in2 Type.pauli (in1 pauliX Type.(pauli ** pauli)));
+  eval (swap Type.pauli (ntensor 3) @ pauliNegX2Y3);
 
   (* eval (parseFromFile "lib/examples.pc"); *)
 
