@@ -66,6 +66,7 @@ module SymplecticForm : sig
   val psi_of : Expr.t -> LambdaC.Expr.t
   val psi_of_pc : Expr.pc -> LambdaC.Expr.t
   val ccaseP : LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t
+  
   (** calculates the symplectic form and is thus used to capture the commutativity of Pauli encodings *)
   val omega : Type.t -> LambdaC.Expr.t -> LambdaC.Expr.t -> LambdaC.Expr.t 
 end
