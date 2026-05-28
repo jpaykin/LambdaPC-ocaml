@@ -7,13 +7,18 @@ type gate =
   | X of qubit
   | Z of qubit
   | CNOT of qubit * qubit
-
+  | SWAP of qubit * qubit
+ 
 type t = gate list
 
 val empty : t
 val singleton : gate -> t
-val append : t -> t -> t
+(*val append : t -> t -> t*)
 val invert_gate : gate -> gate
 val dagger : t -> t
+val concat : t -> t -> t
 val to_string_gate : gate -> string
 val to_string : t -> string
+
+val gate_to_pc : int -> gate -> LambdaPC.Expr.pc
+val circuit_to_pc : int -> t -> LambdaPC.Expr.pc

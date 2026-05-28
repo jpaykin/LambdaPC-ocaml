@@ -7,6 +7,7 @@ type gate =
   | X of qubit
   | Z of qubit
   | CNOT of qubit * qubit  (* control, target *)
+  | SWAP of qubit * qubit  (* qubits to swap *)
 
 type t = gate list
 
@@ -25,6 +26,8 @@ let invert_gate = function
   | X q -> X q
   | Z q -> Z q
   | CNOT (c, target) -> CNOT (c, target)
+  | SWAP (q1, q2) -> SWAP (q1, q2)
+
 
 let dagger (c : t) : t =
   List.rev_map invert_gate c
@@ -36,6 +39,7 @@ let to_string_gate = function
   | X q -> Printf.sprintf "X %d" q
   | Z q -> Printf.sprintf "Z %d" q
   | CNOT (c, target) -> Printf.sprintf "CNOT (%d,%d)" c target
+  | SWAP (q1, q2) -> Printf.sprintf "SWAP (%d,%d)" q1 q2
 
 let to_string (c : t) : string =
   match c with
@@ -43,3 +47,28 @@ let to_string (c : t) : string =
   | _ ->
       let body = String.concat "; " (List.map to_string_gate c) in
       "[ " ^ body ^ " ]"
+
+(*
+ * Parameters:
+ *    n - number of qubits
+ *    g - a gate on n qubits
+ * Returns
+ *    A projective Clifford of type |Pauli^n -o Pauli^n|
+ *    implementing the gate g
+*)
+let gate_to_pc (n : int) (g : gate) : LambdaPC.Expr.pc =
+  Examples.(match g with
+  | H q -> in_pc n q hadamard
+  | S q -> in_pc n q phasegate
+  | Sdg q -> in_pc n q phasegate_dag
+  | X q -> in_pc n q (pauli_to_clifford Pauli pauliX)
+  | Z q -> in_pc n q (pauli_to_clifford Pauli pauliZ)
+  | CNOT(q1,q2) -> in_pc_i_j n q1 q2 cnot
+  | SWAP (q1, q2) -> in_pc_i_j n q1 q2 (swap Pauli Pauli)
+  )
+
+let rec circuit_to_pc (n : int) (circ : t) : LambdaPC.Expr.pc =
+  Examples.(match circ with
+  | [] -> id (ntensor n)
+  | g::circ' -> seq (gate_to_pc n g) (circuit_to_pc n circ')
+  )
