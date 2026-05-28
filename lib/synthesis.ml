@@ -2,18 +2,14 @@ open Tableau
 module C = Circuit
 module T = Tableau
 
-(* stub/dummy functions *)
-let count_strong _p _q = 0
-let count_weak _p _q = 0
-let first_strong _p _q = 0
-let second_strong _p _q = 0
-let first_weak _p _q = 0
-
 (* ///////////////////////////////////////////// 
    Goal: build a quantum circuit that maps a Pauli pair (P, Q)
    to the target operators (Zi, Xi) at qubit i.
 
    Functions order:
+     is_strong
+     is_weak
+     ls_of_strong_weak
      val_to_list
      get_sqp_at
      reduce_weak
@@ -27,9 +23,37 @@ let first_weak _p _q = 0
      synthesis
    ///////////////////////////////////////////// *)
 
+
+(* is_strong*)
+(* Returns true if two single-qubit Paulis anticommute*)
+let is_strong (px, pz) (qx, qz) : bool =
+  (px * qz + qx * pz) mod 2 <> 0
+
+
+(* is_weak *)
+(* Returns true if at least one Pauli is non-identity & they do not anticommute. *)
+let is_weak (px, pz) (qx, qz) : bool =
+  not (is_strong (px, pz) (qx, qz)) && ((px, pz) <> (0,0) || (qx, qz) <> (0,0))
+
+(* ls_of_strong_weak *)
+(* Sorts each qubit index into strong or weak support lists.  *)
+let ls_of_strong_weak (ps : (int * int) list) (qs : (int * int) list)
+    : int list * int list =
+  let rec go i ps qs =
+    match ps, qs with
+    | [], [] -> ([], [])
+    | pk :: ps_rest, qk :: qs_rest ->
+        let (s, w) = go (i + 1) ps_rest qs_rest in
+        if is_strong pk qk           then (i :: s, w)
+        else if is_weak pk qk            then (s, i :: w)
+        else (s, w)   
+    | _ -> failwith "lists of different length"
+  in
+  go 0 ps qs
+
 (* val to list*)
 (* Maps a nested pair Val.t encoding to a list of (x,z) Pauli coordinates *)
-  let rec val_to_list (v : LambdaC.Val.t) : (int * int) list =
+let rec val_to_list (v : LambdaC.Val.t) : (int * int) list =
   match v with
   | LambdaC.Val.Pair (LambdaC.Val.Const x, LambdaC.Val.Const z) -> [(x, z)]
   | LambdaC.Val.Pair (v1, v2) -> val_to_list v1 @ val_to_list v2
@@ -41,7 +65,6 @@ let first_weak _p _q = 0
 let get_sqp_at (l : int) (v : LambdaPC.Val.t) : (int * int) =
   let ls = val_to_list v.value in
   List.nth ls l
-
 
 (* reduce_weak
    Returns a single-qubit Clifford circuit that rotates a
@@ -78,7 +101,7 @@ let reduce_weak (l : int) (pk : int * int) (qk : int * int)
    Strong support where pj and qj anticommute. 
 
    Where: I=(0,0)  X=(1,0)  Y=(1,1)  Z=(0,1) *)
-  let reduce_strong (l : int) (pj : int * int) (qj : int * int) (gpj : int * int) (gqj : int * int) : C.t =
+let reduce_strong (l : int) (pj : int * int) (qj : int * int) (gpj : int * int) (gqj : int * int) : C.t =
     match (pj, qj) with
   (* (X,Z) -> * *)
   | ((1,0),(0,1)) ->
@@ -232,39 +255,41 @@ let apply_circuit_to_pauli (c : C.t) (n : int) (p : LambdaPC.Val.t) : LambdaPC.V
        i, apply SWAP(i, j) to move it into position. *)
 let synthesize_row (i : int) (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : C.t =
   
-  let n = List.length (val_to_list p.value) in
-  let s = ref (count_strong p q) in
-  let w = ref (count_weak p q) in
+let n = List.length (val_to_list p.value) in
+let p = ref p in
+let q = ref q in
+
+let (s0, w0) = ls_of_strong_weak (val_to_list !p.value) (val_to_list !q.value) in
+let strong = ref s0 in
+let weak   = ref w0 in
   let c = ref C.empty in
-  let p = ref p in
-  let q = ref q in
 
   (* Phase 1: reduce strong support count to at most 1 *)
-  while !s > 1 do
-    let j = first_strong !p !q in
-    let k = second_strong !p !q in
+  while List.length !strong > 1 do
+  let j = List.nth !strong 0 in
+  let k = List.nth !strong 1 in
     let gates = ss_to_ww j k !p !q in
     c := C.concat !c gates;
     p := apply_circuit_to_pauli gates n !p;
     q := apply_circuit_to_pauli gates n !q;
-    s := !s - 2;
-    w := !w + 2
+    strong := List.tl (List.tl !strong);  
+    weak   := j :: k :: !weak          
   done;
 
   (* Phase 2: eliminate all weak supports *)
-  while !w > 0 do
-    let j = first_strong !p !q in
-    let k = first_weak !p !q in
+  while List.length !weak > 0 do
+    let j = List.hd !strong in
+    let k = List.hd !weak in
     let gates = sw_to_sn j k !p !q in
     c := C.concat !c gates;
     p := apply_circuit_to_pauli gates n !p;
     q := apply_circuit_to_pauli gates n !q;
-    w := !w - 1
+    weak := List.tl !weak;
 
   done;
 
 (* Phase 3: move the remaining strong support to qubit i *)
-  let j = first_strong !p !q in
+  let j = List.nth !strong 0 in
     if j <> i then
     c := C.concat !c [C.SWAP (i, j)];
 !c
@@ -288,57 +313,3 @@ let synthesis (tab : T.tab) : C.t =
     result := C.concat !result c
   done;
   !result
-
-
-
-let is_strong (pk : LambdaC.Val.t) (qk : LambdaC.Val.t) : bool =
-  let sf = LambdaPC.Eval(Scalars.Z2).LEval.symplectic_form pk qk in
-  sf <> Scalars.Z2.zero
-
-let count_strong (p : LambdaPC.Val.t) (q : LambdaPC.Val.t) : int =
-  let ps = val_to_list p.value in
-  let qs = val_to_list q.value in
-  List.length (List.filter (fun (pk, qk) ->
-    is_strong 
-      (LambdaC.Val.Pair(LambdaC.Val.Const(fst pk), LambdaC.Val.Const(snd pk)))
-      (LambdaC.Val.Pair(LambdaC.Val.Const(fst qk), LambdaC.Val.Const(snd qk))))
-    (List.combine ps qs))
-
-    Omega: LPC.type.t 
-
-
-     let is_strong pk qk =
-
-hasStrong_support: LambdaPC.Val.t -> LambdaPC.Val.t -> bool
-has strong support  (int * int -> (int * int) -> bool
-
-what is the function we are calling, 
-
-
-  ls_of_strrong: prodouces an int list, takes in 2 paulis
-  ls_of_strong : ( int * int) list -> (int * int) list -> int list
-  ( implemneted by convert paulis itno int * int list 
-  iterate or recurive over the list), pattern matching over the list to tell iff that index has strong suppport or not. 
-    ( popping weak to move to strong list)
-
-  then ls of weak would function the same way.
-  Ls_of_strong 
-
-  let ls_of_strong (ps : (int * int) list) (qs : (int * int) list) : int list =
-  let rec go i ps qs =
-    match ps, qs with
-    | [], [] -> []
-    | pk :: ps_rest, qk :: qs_rest ->
-        if is_strong pk qk
-        then i :: go (i+1) ps_rest qs_rest
-        (* weak support, check to make sure its not the idenity*)
-        else      go (i+1) ps_rest qs_rest
-    | _ -> failwith "lists different lengths"
-  in
-  go 0 ps qs
-  
-(* add the specific type *)
-  let is_strong (px, pz) (qx, qz) : bool =
-  (px * qz + qx * pz) mod 2 <> 0
-
-  (* given two pauli ( intger pairs), determine if they have strong support)
