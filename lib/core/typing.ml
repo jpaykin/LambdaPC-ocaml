@@ -362,17 +362,17 @@ module SmtLambdaCExpr = struct
       match e with
       | NConst r -> NConst r
       | NLambda(x,tp,e') ->
-        if x=from then NLambda(x,tp,e') else NLambda(x,tp,subst from to_ e')
+        if Ident.equal x from then NLambda(x,tp,e') else NLambda(x,tp,subst from to_ e')
       | NPair(e1,e2) -> NPair(subst from to_ e1, subst from to_ e2)
       | Neutral e' -> substN from to_ e'
       | Annot(e',tp) -> annot (substN from to_ e') tp
     and substN from to_ e =
       match e with
-      | NVar x -> if x=from then to_ else Neutral (NVar x)
+      | NVar x -> if Ident.equal x from then to_ else Neutral (NVar x)
       | NApply(e1,e2) -> napply (substN from to_ e1) (subst from to_ e2) 
       | NCase(e',x1,e1,x2,e2) ->
-        let e1' = if x1=from then e1 else subst from to_ e1 in
-        let e2' = if x2=from then e2 else subst from to_ e2 in
+        let e1' = if Ident.equal x1 from then e1 else subst from to_ e1 in
+        let e2' = if Ident.equal x2 from then e2 else subst from to_ e2 in
         ncase (substN from to_ e') x1 e1' x2 e2'
       | NPlus(e1,e2) -> nplus (substN from to_ e1) (subst from to_ e2)
       | NScale(e1,e2) -> nscale (subst from to_ e1) (substN from to_ e2)

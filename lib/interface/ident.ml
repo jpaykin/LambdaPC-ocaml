@@ -4,8 +4,6 @@ module Loc = struct
 end
 
 module Ident = struct
-  (**TODO: Add unit tests make sure that everything is wired up correctly DOCUMENTATION
-   SEND EMAI*)
   type t =
     { text : string
     ; sym : Symbol.t
@@ -104,43 +102,3 @@ module IdentSet = struct
       exists_usage_subset (M.remove x u)
         (fun u0 -> f u0 || f (M.add x u0))
 end
-
-(*
-module LambdaPC = struct
-  module Type = struct
-    type t = { loc : Loc.t; node : node }
-    and node =
-      | Pauli
-      | PTensor of t * t
-  end
-
-  type expr = { loc : Loc.t; ty : Type.t option; node : node }
-  and node =
-    | Var   of Ident.t
-    | Let   of { x : Ident.t; rhs : expr; body : expr }
-    | LExpr of LambdaC.expr
-    | Phase of LambdaC.expr * expr
-    | Prod  of expr * expr
-    | Pow   of expr * LambdaC.expr
-    | CasePauli   of { scrut : expr; tx : expr; tz : expr }
-    | In1 of { tp : Type.t; v : expr }
-    | In2 of { tp : Type.t; v : expr }
-    | CasePTensor of
-        { scrut : expr
-        ; x1    : Ident.t; t1 : expr
-        ; x2    : Ident.t; t2 : expr
-        }
-    | Apply of pc * expr
-    | Force of p
-
-  and pc = { loc : Loc.t; node : pc_node }
-  and pc_node =
-    | Lam of { x : Ident.t; tp : Type.t; body : expr }
-
-  and p = { loc : Loc.t; node : p_node }
-  and p_node =
-    | Suspend of expr
-end
-
-
-*)

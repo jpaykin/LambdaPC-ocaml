@@ -94,22 +94,22 @@ module Expr = struct
     let rec subst (from : Ident.t) (to_ : t) (a : t) : t =
       let result_node = 
         match a.node with
-        | Var x -> if x = from then to_.node else Var x
+        | Var x -> if Ident.equal x from then to_.node else Var x
         | Let { x; a = a1; body = a2 } ->
           Let { x;
                 a = subst from to_ a1;
-                body = if x = from then a2 else subst from to_ a2 }
+                body = if Ident.equal x from then a2 else subst from to_ a2 }
         | Zero -> Zero
         | Const c -> Const c
         | Plus (a1, a2) -> Plus (subst from to_ a1, subst from to_ a2)
         | Scale (a1, a2) -> Scale (subst from to_ a1, subst from to_ a2)
         | Pair (a1, a2) -> Pair (subst from to_ a1, subst from to_ a2)
         | Case { scrut; x1; a1; x2; a2 } ->
-            let a1' = if x1 = from then a1 else subst from to_ a1 in
-            let a2' = if x2 = from then a2 else subst from to_ a2 in
+            let a1' = if Ident.equal x1 from then a1 else subst from to_ a1 in
+            let a2' = if Ident.equal x2 from then a2 else subst from to_ a2 in
             Case { scrut = subst from to_ scrut; x1; a1 = a1'; x2; a2 = a2' }
         | Lambda { x; tp; body } ->
-            if x = from then Lambda { x; tp; body }
+            if Ident.equal x from then Lambda { x; tp; body }
             else Lambda { x; tp; body = subst from to_ body }
         | App (a1, a2) -> App (subst from to_ a1, subst from to_ a2)
       in

@@ -134,10 +134,10 @@ module Expr = struct
   let rec rename_var (from : Ident.t) (to_ : Ident.t) e =
       let node = match e.node with
       | Var x ->
-          if x = from then Var to_ else Var x
+          if Ident.equal x from then Var to_ else Var x
       | Let { x; expr; body } ->
           let expr' = rename_var from to_ expr in
-          let body' = if x = from then body else rename_var from to_ body in
+          let body' = if Ident.equal x from then body else rename_var from to_ body in
           Let { x; expr = expr'; body = body' }
       | LExpr le ->
           LExpr (LambdaC.Expr.rename_var from to_ le)
@@ -154,8 +154,8 @@ module Expr = struct
       | In2 { v; tp } ->
           In2 { v = rename_var from to_ v; tp }
       | CasePTensor { scrut; x1; t1; x2; t2 } ->
-          let t1' = if x1 = from then t1 else rename_var from to_ t1 in
-          let t2' = if x2 = from then t2 else rename_var from to_ t2 in
+          let t1' = if Ident.equal x1 from then t1 else rename_var from to_ t1 in
+          let t2' = if Ident.equal x2 from then t2 else rename_var from to_ t2 in
           CasePTensor { scrut = rename_var from to_ scrut; x1; t1 = t1'; x2; t2 = t2' }
       | App (f, expr) -> App (f, rename_var from to_ expr)
       | Force p -> Force p
