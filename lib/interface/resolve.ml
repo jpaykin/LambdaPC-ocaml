@@ -1,4 +1,3 @@
-open Named_ast
 open Ident
 
 exception Error of { loc : Loc.t option; msg : string }
@@ -26,7 +25,7 @@ let freshen (x : Ident.t) : Ident.t =
 let rewrite_var (binder_sym : Symbol.t) (site : Ident.t) : Ident.t =
   { site with sym = binder_sym; text = Symbol.Id.name binder_sym }
 
-let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr =
+let rec resolve_c (env : env) (e : Ast.Expr.t) : Ast.Expr.t =
   let loc = e.loc in
   let mk node = { e with node; loc } in
   match e.node with
@@ -37,7 +36,7 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
           raise (Error { loc = x.loc; msg = "unbound LambdaC variable " ^ x.text })
     )
 
-  | Zero tp -> mk (Zero tp)
+  | Zero -> mk Zero
 
   | Const n -> mk (Const n)
 
@@ -53,18 +52,15 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
   | App (f, x) ->
       mk (App (resolve_c env f, resolve_c env x))
 
-  | Annot (a, tp) ->
-      mk (Annot (resolve_c env a, tp))
-
-  | Let { x; rhs; body } ->
-      let rhs' = resolve_c env rhs in
+  | Let { x; a; body } ->
+      let a' = resolve_c env a in
       let x' = freshen x in
       let env' = (x.sym, x'.sym) :: env in
       let body' =
         Symbol.Resolve_scope.with_binding x.sym x'.sym
           (fun () -> resolve_c env' body)
       in
-      mk (Let { x = x'; rhs = rhs'; body = body' })
+      mk (Let { x = x'; a = a'; body = body' })
 
   | Lambda { x; tp; body } ->
       let x' = freshen x in
@@ -94,11 +90,11 @@ let rec resolve_c (env : env) (e : LambdaC_Surface.expr) : LambdaC_Surface.expr 
 
       mk (Case { scrut = scrut'; x1 = x1'; a1 = a1'; x2 = x2'; a2 = a2' })
 
-let resolve_c_top (e : LambdaC_Surface.expr) : LambdaC_Surface.expr =
+let resolve_c_top (e : Ast.Expr.t) : Ast.Expr.t =
   Symbol.Resolve_scope.with_scope (fun () -> resolve_c [] e)
 
-let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
-  : LambdaPC_Surface.expr =
+let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC.Expr.t)
+  : LambdaPC.Expr.t =
   let loc = e.loc in
   let mk node = { e with node; loc } in
   match e.node with
@@ -109,15 +105,15 @@ let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
           raise (Error { loc = x.loc; msg = "unbound LambdaPC variable " ^ x.text })
     )
 
-  | Let { x; rhs; body } ->
-      let rhs' = resolve_pc env_pc env_c rhs in
+  | Let { x; expr; body } ->
+      let expr' = resolve_pc env_pc env_c expr in
       let x' = freshen x in
       let env_pc' = (x.sym, x'.sym) :: env_pc in
       let body' =
         Symbol.Resolve_scope.with_binding x.sym x'.sym
           (fun () -> resolve_pc env_pc' env_c body)
       in
-      mk (Let { x = x'; rhs = rhs'; body = body' })
+      mk (Let { x = x'; expr = expr'; body = body' })
 
   | LExpr le ->
       mk (LExpr (resolve_c env_c le))
@@ -162,14 +158,14 @@ let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC_Surface.expr)
 
       mk (CasePTensor { scrut = scrut'; x1 = x1'; t1 = t1'; x2 = x2'; t2 = t2' })
 
-  | Apply (f, arg) ->
-      mk (Apply (resolve_pc_fun env_pc env_c f, resolve_pc env_pc env_c arg))
+  | App (f, arg) ->
+      mk (App (resolve_pc_fun env_pc env_c f, resolve_pc env_pc env_c arg))
 
   | Force p ->
       mk (Force (resolve_p env_pc env_c p))
 
-and resolve_pc_fun (env_pc : env) (env_c : env) (f : LambdaPC_Surface.pc)
-  : LambdaPC_Surface.pc =
+and resolve_pc_fun (env_pc : env) (env_c : env) (f : LambdaPC.Expr.pc)
+  : LambdaPC.Expr.pc =
   let loc = f.loc in
   match f.node with
   | Lam { x; tp; body } ->
@@ -179,20 +175,20 @@ and resolve_pc_fun (env_pc : env) (env_c : env) (f : LambdaPC_Surface.pc)
         Symbol.Resolve_scope.with_binding x.sym x'.sym
           (fun () -> resolve_pc env_pc' env_c body)
       in
-      { loc; node = Lam { x = x'; tp; body = body' } }
+      { f with loc; node = Lam { x = x'; tp; body = body' } }
 
-and resolve_p (env_pc : env) (env_c : env) (p : LambdaPC_Surface.p)
-  : LambdaPC_Surface.p =
+and resolve_p (env_pc : env) (env_c : env) (p : LambdaPC.Expr.p)
+  : LambdaPC.Expr.p =
   let loc = p.loc in
   match p.node with
   | Suspend e ->
-      { loc; node = Suspend (resolve_pc env_pc env_c e) }
+      { p with loc; node = Suspend (resolve_pc env_pc env_c e) }
 
-let resolve_pc_top (e : LambdaPC_Surface.expr) : LambdaPC_Surface.expr =
+let resolve_pc_top (e : LambdaPC.Expr.t) : LambdaPC.Expr.t =
   Symbol.Resolve_scope.with_scope (fun () -> resolve_pc [] [] e)
 
-let resolve_pc_fun_top (f : LambdaPC_Surface.pc) : LambdaPC_Surface.pc =
+let resolve_pc_fun_top (f : LambdaPC.Expr.pc) : LambdaPC.Expr.pc =
   Symbol.Resolve_scope.with_scope (fun () -> resolve_pc_fun [] [] f)
 
-let resolve_p_top (p : LambdaPC_Surface.p) : LambdaPC_Surface.p =
+let resolve_p_top (p : LambdaPC.Expr.p) : LambdaPC.Expr.p =
   Symbol.Resolve_scope.with_scope (fun () -> resolve_p [] [] p)

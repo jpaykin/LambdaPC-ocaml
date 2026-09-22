@@ -193,23 +193,3 @@ module Resolve_scope = struct
         let fresh = bind_fresh ?hint key in
         f fresh)
 end
-
-(*
-module HOAS = struct
-  let var (loc : Loc.t) (x : Ident.t) : LambdaPC_Surface.expr =
-    { loc; ty = None; node = Var x }
-
-  let letin (loc : Loc.t)
-      (rhs : LambdaPC_Surface.expr)
-      (k : LambdaPC_Surface.expr -> LambdaPC_Surface.expr)
-      : LambdaPC_Surface.expr =
-    let x = Ident.fresh ~hint:"x" loc () in
-    { loc; ty = None; node = Let { x; rhs; body = k (var loc x) } }
-
-  let lambda ~(loc : Loc.t) tp
-      (k : LambdaPC_Surface.expr -> LambdaPC_Surface.expr)
-      : LambdaPC_Surface.pc =
-    let x = Ident.fresh ~hint:"x" loc () in
-    { loc; node = Lam { x; tp; body = k (var loc x) } }
-end
-*)

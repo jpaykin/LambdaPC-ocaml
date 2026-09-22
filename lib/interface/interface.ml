@@ -48,19 +48,19 @@ let parse_with
   | Resolve.Error { loc=None; msg } ->
       raise (Parse_error ("Undefined Location", msg))
 
-let parse (s : string) : Named_ast.LambdaPC_Surface.expr =
+let parse (s : string) : LambdaPC.Expr.t =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb ->
       let ast = Parser.prog Lexer.read lb in
       Resolve.resolve_pc_top ast)
 
-let pc (s : string) : Named_ast.LambdaPC_Surface.pc =
+let pc (s : string) : LambdaPC.Expr.pc =
   let lexbuf = Lexing.from_string s in
   parse_with "<stdin>" lexbuf (fun lb ->
       let ast = Parser.pcprog Lexer.read lb in
       Resolve.resolve_pc_fun_top ast)
 
-let parseFromFile (filename : string) : Named_ast.LambdaPC_Surface.expr =
+let parseFromFile (filename : string) : LambdaPC.Expr.t =
   In_channel.with_open_bin filename (fun f ->
       let lexbuf = Lexing.from_channel f in
       parse_with filename lexbuf (fun lb ->
