@@ -94,6 +94,54 @@ let test_symplectic_form () =
   (* For Z2, 1*1 - 0*0 = 1 *)
   check int "symplectic_form" (Z2.int_of_t z) 1
 
+let parse_linear source : Ast.Expr.t =
+  match (Interface.parse source).node with
+  | LambdaPC.Expr.LExpr expr -> expr
+  | _ -> fail "Expected a LambdaC expression"
+
+let test_substitution_uses_symbol_identity () =
+  let expr = parse_linear "lambda x : Zd. var x" in
+  match expr.node with
+  | Lambda { x; body = { node = Var use; _ } as body; _ } ->
+      check bool "source locations differ" true (x.loc <> use.loc);
+      let substituted = Expr.subst x (HOAS.const 1) body in
+      check string "substitution matches the binder's symbol"
+        "Const(1)" (Expr.string_of_t substituted);
+      let replacement = Ident.fresh () in
+      (match (Expr.rename_var x replacement body).node with
+       | Var actual ->
+           check bool "renaming matches the binder's symbol" true
+             (Ident.equal replacement actual)
+       | _ -> fail "Expected renamed variable");
+      let unchanged = Expr.subst use (HOAS.const 1) expr in
+      check bool "lambda binder stops substitution by symbol" true
+        (Expr.alpha_equiv expr unchanged)
+  | _ -> fail "Expected an identity lambda"
+
+let test_substitution_respects_case_binders () =
+  let expr = parse_linear
+    ". case X of { in1 x -> var x | in2 z -> var z }" in
+  match expr.node with
+  | Case { a1 = { node = Var use1; _ }; a2 = { node = Var use2; _ }; _ } ->
+      List.iter
+        (fun use ->
+          let unchanged = Expr.subst use (HOAS.const 0) expr in
+          check bool "case binder stops substitution by symbol" true
+            (Expr.alpha_equiv expr unchanged))
+        [use1; use2]
+  | _ -> fail "Expected a case expression with variable branches"
+
+let test_normalize_parsed_binders () =
+  List.iter
+    (fun source ->
+      let expr = parse_linear source in
+      let normalized = PCLib.Typing.SmtLambdaCExpr.normalize expr in
+      check string source "Const(1)" (Expr.string_of_t normalized))
+    [ "(lambda x : Zd. var x) .@ 1"
+    ; ". case X of { in1 x -> var x | in2 z -> var z }"
+    ; "(lambda x : Zd. (lambda x : Zd. var x) .@ 1) .@ 0"
+    ]
+
 (*
 let test_fresh_api_seed_then_allocate () =
   let reserved = Fresh.current () + 25 in
@@ -145,6 +193,9 @@ let suite =
       test_case "Expr.map and Val.map" `Quick test_expr_map_and_val_map;
       test_case "vzero/vplus/vscale/Case/Apply" `Quick test_vzero_vplus_vscale_case_apply;
       test_case "symplectic_form" `Quick test_symplectic_form;
+      test_case "Substitution uses symbol identity" `Quick test_substitution_uses_symbol_identity;
+      test_case "Substitution respects case binders" `Quick test_substitution_respects_case_binders;
+      test_case "Normalize parsed binders" `Quick test_normalize_parsed_binders;
       (*
       test_case "Fresh API seed then allocate" `Quick test_fresh_api_seed_then_allocate;
       test_case "Expr.update_env seeds freshness" `Quick test_expr_update_env_seeds_fresh;
