@@ -170,6 +170,7 @@ module TypeInformation = struct
     tp : 'tp;
   }
 
+  
   let string_of_info string_of_tp string_of_expr info =
     "Type Information:\n"
     ^ "\tAnnotated Expression: " ^ string_of_expr info.expr ^"\n"
@@ -197,8 +198,8 @@ module TypeInformation = struct
     | Some tp -> tp
 
   
-  let assert_type string_of_a (expected : 'a) (actual : 'a) =
-    if expected = actual then ()
+  let assert_type string_of_a eq_a (expected : 'a) (actual : 'a) =
+    if eq_a expected actual then ()
     else terr @@ "Expected type: " ^ string_of_a expected
                                    ^ "\nActual type: " ^ string_of_a actual
 
@@ -240,7 +241,7 @@ module Typing = struct
   open TypeInformation
   let string_of_info = TypeInformation.string_of_info Type.string_of_t Expr.pretty_string_of_t
   let pp_info info = print_string @@ string_of_info info
-  let assert_type = TypeInformation.assert_type Type.string_of_t
+  let assert_type = TypeInformation.assert_type Type.string_of_t Type.eq
 
   let assert_arrow_type (alpha : Type.t) : Type.t * Type.t =
     match alpha.node with

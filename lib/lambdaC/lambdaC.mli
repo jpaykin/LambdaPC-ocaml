@@ -61,7 +61,7 @@ module TypeInformation : sig
   val terr : string -> 'a
   val debug : string -> unit
   val type_of_var : 'a VariableMap.t -> Ident.t -> 'a
-  val assert_type : ('a -> string) -> 'a -> 'a -> unit
+  val assert_type : ('a -> string) -> ('a -> 'a -> bool) -> 'a -> 'a -> unit
 
   val var_usage : Ident.t -> usage_relation
   val same_usage : ('tp1,'expr1) t -> ('tp2,'expr2) t -> usage_relation

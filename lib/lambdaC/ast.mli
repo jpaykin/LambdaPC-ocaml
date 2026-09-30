@@ -3,6 +3,7 @@ module Type :
     type t = { loc : Ident.Loc.t option; node : node; }
     and node = Unit | Sum of t * t | Arrow of t * t
 
+    val eq : t -> t -> bool
     val t_of_node : node -> t
     val string_of_t : t -> string
     val pretty : t -> string

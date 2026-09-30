@@ -9,6 +9,13 @@ module Type = struct
       | Sum of t * t
       | Arrow of t * t
 
+  let rec eq tp1 tp2 =
+    match tp1.node, tp2.node with
+    | Unit, Unit -> true
+    | Sum (tp11, tp12), Sum(tp21, tp22) -> eq tp11 tp21 && eq tp12 tp22
+    | Arrow (tp11, tp12), Arrow(tp21, tp22) -> eq tp11 tp21 && eq tp12 tp22
+    | _, _ -> false
+
   let t_of_node n = { loc = None ; node = n }
 
   let rec string_of_t tp =

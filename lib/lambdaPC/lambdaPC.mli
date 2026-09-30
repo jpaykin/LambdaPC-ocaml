@@ -10,6 +10,7 @@ module Type : sig
     val pauli : t
     val ( ** ) : t -> t -> t
 
+    val eq : t -> t -> bool
     val t_of_node : node -> t
     val ltype_of_t : t -> LambdaC.Type.t
     val t_of_ltype : LambdaC.Type.t -> t option

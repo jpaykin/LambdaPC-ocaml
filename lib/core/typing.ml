@@ -1,3 +1,4 @@
+module ZZ = Z
 open Scalars
 open Ident
 open LambdaPC
@@ -13,7 +14,7 @@ module LinearityTyping = struct
     (fun (tp1,tp2) -> "|" ^ Type.string_of_t tp1 ^ " -o " ^ Type.string_of_t tp2 ^ "|")
     Expr.pretty_string_of_pc
   let pp_info info = print_string @@ string_of_info info
-  let assert_type = TypeInformation.assert_type Type.string_of_t
+  let assert_type = TypeInformation.assert_type Type.string_of_t Type.eq
 
   let assert_pc_type (tp : LambdaC.Type.t) : Type.t =
     match Type.t_of_ltype tp with
@@ -182,9 +183,10 @@ end
 module SMT = struct
   open Smtml
 
+  let const_val x = Value.Int (ZZ.of_int x)
   let pair e1 e2 = Expr.list [e1; e2]
-  let fst tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 0))
-  let snd tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 1))
+  let fst tp e = Expr.binop tp Ty.Binop.At e (Expr.value (const_val 0))
+  let snd tp e = Expr.binop tp Ty.Binop.At e (Expr.value (const_val 1))
   (*let lambda (x : Symbol.t) (e : Expr.t) = Smtml.Expr.list [Smtml.Expr.symbol x; e]
   *)
 
@@ -463,7 +465,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   open LambdaC
   module EvalZd = Eval(Zd)
 
-  let modd e = Smtml.Expr.binop Ty_int Rem e (Smtml.Expr.value (Int Zd.Dim.dim))
+  let modd e = Smtml.Expr.binop Ty_int Rem e (Smtml.Expr.value (SMT.const_val (Zd.Dim.dim)))
   let ( + ) e1 e2 = modd @@ Smtml.Expr.binop Ty_int Add e1 e2
   let ( * ) e1 e2 = modd @@ Smtml.Expr.binop Ty_int Mul e1 e2
 
@@ -475,7 +477,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   let var (ctx : Smtml.Symbol.t VariableMap.t) (x : Ident.t) : Smtml.Expr.t =
     Smtml.Expr.symbol @@ VariableMap.find x ctx
-  let const (r : int) : Smtml.Expr.t = modd (Smtml.Expr.value (Int r))
+  let const (r : int) : Smtml.Expr.t = modd (Smtml.Expr.value (SMT.const_val r))
 
   (*
   let lambda x e = SMT.lambda x e
@@ -484,10 +486,10 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   (* typed symbols are for free variables *)
   let make_typed_symbol tp x =
-    Smtml.Symbol.make (smtml_of_type tp) ("x" ^ Ident.string_of_t x)
+    Smtml.Symbol.make_const (smtml_of_type tp) ("x" ^ Ident.string_of_t x)
   (* untyped symbols are for bound variables *)
   let make_untyped_symbol x =
-    Smtml.Symbol.make Smtml.Ty.Ty_none ("x" ^ Ident.string_of_t x)
+    Smtml.Symbol.make_const Smtml.Ty.Ty_none ("x" ^ Ident.string_of_t x)
   (*
   [@@@warning "-32"]
   let fresh_symbol tp = 
@@ -670,7 +672,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   let rec value_of_smtml (tp : Type.t) (v : Smtml.Value.t) : Val.t =
     match tp.node, v with
-    | Unit, Int r -> Val.Const (Zd.normalize r)
+    | Unit, Int r -> Val.Const (Zd.normalize (ZZ.to_int r))
     | Sum (tp1,tp2), List [v1; v2] -> Val.Pair (value_of_smtml tp1 v1, value_of_smtml tp2 v2)
     | Arrow (_, _), List [_;_] -> 
       terr @@ "[smtml] Cannot coerce smtml value to LambdaC value of function type\n"

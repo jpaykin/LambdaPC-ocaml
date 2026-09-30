@@ -10,6 +10,12 @@ module Type = struct
 
   let t_of_node n = {loc = None; node = n}
 
+  let rec eq tp1 tp2 =
+    match tp1.node, tp2.node with
+    | Pauli, Pauli -> true
+    | PTensor(tp11,tp12), PTensor(tp21,tp22) -> eq tp11 tp21 && eq tp12 tp22
+    | _, _ -> false
+
   let pauli : t = t_of_node Pauli
   let ( ** ) tp1 tp2 : t = t_of_node @@ PTensor(tp1,tp2)
 
