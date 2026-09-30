@@ -36,7 +36,7 @@ module SmtLambdaCExpr : sig
   val normalize : LambdaC.Expr.t -> LambdaC.Expr.t
 end
 
-module SmtLambdaC : Scalars.Z_SIG -> sig
+module SmtLambdaC : functor (_ : Scalars.Z_SIG) -> sig
   open LambdaC
     val smtml_of_type : LambdaC.Type.t -> Smtml.Ty.t
     val smtml_of_expr : Type.t VariableMap.t -> Smtml.Symbol.t VariableMap.t -> Expr.t -> Type.t -> Smtml.Expr.t
@@ -51,7 +51,7 @@ module SmtLambdaC : Scalars.Z_SIG -> sig
     val equiv : Type.t -> Type.t VariableMap.t -> Expr.t -> Expr.t -> (unit, counterexample) result
   end
 
-module SmtLambdaPC : Scalars.SCALARS -> sig
+module SmtLambdaPC : functor (_ : Scalars.SCALARS) -> sig
   val symplectic_check : Type.t -> Type.t -> LambdaPC.Expr.pc -> unit
   val typecheck : LambdaPC.Expr.pc -> Type.t * Type.t
 end
