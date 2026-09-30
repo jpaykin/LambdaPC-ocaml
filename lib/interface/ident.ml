@@ -1,0 +1,104 @@
+module Loc = struct
+  type t = { sp : Lexing.position; ep : Lexing.position}
+  let mk sp ep = { sp; ep }
+end
+
+module Ident = struct
+  type t =
+    { text : string
+    ; sym : Symbol.t
+    ; loc : Loc.t option
+    }
+
+  let mk ~text ~loc = { text; sym = Symbol.Id.intern text; loc = Some loc }
+  let compare x1 x2 = Symbol.Id.compare x1.sym x2.sym
+  let equal x1 x2 = Symbol.Id.equal x1.sym x2.sym
+  let string_of_t x = Symbol.Id.name x.sym
+
+  let fresh ?(hint = "x") ?loc () : t =
+    let sym = Fresh.fresh ~hint () in
+    { text = Symbol.Id.name sym; sym; loc }
+
+
+  let fresh_like ?hint ?loc (x : t) : t =
+    let hint = match hint with Some h -> h | None -> x.text in
+    let loc  = match loc, x.loc with Some l, _ | None, Some l -> Some l | _, _ -> None in
+    let sym = Fresh.fresh ~hint () in
+    { text = Symbol.Id.name sym; sym; loc}
+
+  let seed (x : t) : unit =
+    Symbol.Fresh.ensure_ge (x.sym + 1)
+
+end
+module VariableMap = Map.Make(Ident)
+
+(* Not sure if we still need this or if it's encompassed by Symbol now *)
+  (*
+module VariableEnvironment = struct
+  type t = Ident.t ref
+  
+  let init : t = {contents = 0}
+  let fresh (x : t) : Ident.t =
+    let y = !x in
+    x := y + 1;
+    y
+
+  (* Record the existance of the variable x *)
+  let update (x : Variable.t) (env : t) : unit =
+    env := max (x+1) !env
+end 
+*)
+
+
+module IdentSet = struct
+  module M = Set.Make(Ident)
+  include M
+  (*
+  let string_of_t u = List.fold_left (fun str x -> str ^ string_of_int x) "{" (to_list u)  ^ "}"
+
+  let rename from to_ u = M.map (fun z -> if z = from then to_ else z) u
+  *)
+
+  let rec exists_usage_subset (u : t) (f : t -> bool) : bool =
+    (* want to check if:
+        exists u0, u0 subset u && f u0 }
+      if u is empty (u=0), just check if f(0)
+      if u is not empty, then pick some x in u:
+        u = (u-{x}) U {x}}
+      then
+        u0 subset u
+        <->
+        u0 subset (u-{x})
+        ||
+        (x \in u0 && (u0-{x} subset (u - {x}))
+
+      so 
+        exists u0, u0 subset u && f u0
+        <->
+
+        exists u0,
+          (u0 subset (u-{x}) && f u0)
+        ||
+        exists u0,
+          (x \in u0 && (u0 - {x} subset (u - {x})) && f u0)
+
+        <->
+
+        exists u0,
+          (u0 subset (u-{x}) && f u0)
+        ||
+        exists u0',
+          (u0' subset (u - {x})) && f ({x} union u0'))
+
+        <->
+
+        exists u0,
+          u0 subset (u - {x})
+          && f u0 || f ({x} union u0')
+    *)
+    if M.is_empty u then f u
+    else
+      let x = M.choose u in
+      exists_usage_subset (M.remove x u)
+        (fun u0 -> f u0 || f (M.add x u0))
+end

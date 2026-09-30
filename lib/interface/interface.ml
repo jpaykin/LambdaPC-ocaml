@@ -1,6 +1,6 @@
 (* top-level interface for interacting with LambdaPC via the interpreter or other *)
-
 include LambdaPC.HOAS
+open Ident
 
 module S2 = Scalars.Scalars (Scalars.FIN2)
 module LEval2 = LambdaC.Eval(S2.Zd)
@@ -20,20 +20,52 @@ module Typing4 = Typing.SmtLambdaPC(S4)
 let dim = ref 2
 let set_dimension d = dim := d
 
+exception Parse_error of string * string
+
+let set_file (lb : Lexing.lexbuf) (file : string) : unit =
+  let p = lb.lex_curr_p in
+  lb.lex_curr_p <- { p with pos_fname = file }
+
+let parse_with
+  (file : string)
+  (lb : Lexing.lexbuf)
+  (entry : Lexing.lexbuf -> 'a)
+  : 'a
+=
+  set_file lb file;
+  try entry lb with
+  | Lexer.LexError (msg, sp, ep) ->
+      raise (Parse_error (Util.loc_string_of_positions sp ep, "Lexing error: " ^ msg))
+  | Parser.Error ->
+      let sp, ep = Util.get_start_end lb in
+      let near =
+        let lx = Lexing.lexeme lb in
+        if lx = "" then "end of input" else Printf.sprintf "%S" lx
+      in
+      raise (Parse_error (Util.loc_string_of_positions sp ep, "Parse error near " ^ near))
+  | Resolve.Error { loc=Some loc; msg } ->
+      raise (Parse_error (Util.loc_string_of_positions loc.sp loc.ep, msg))
+  | Resolve.Error { loc=None; msg } ->
+      raise (Parse_error ("Undefined Location", msg))
+
 let parse (s : string) : LambdaPC.Expr.t =
   let lexbuf = Lexing.from_string s in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
+  parse_with "<stdin>" lexbuf (fun lb ->
+      let ast = Parser.prog Lexer.read lb in
+      Resolve.resolve_pc_top ast)
+
 let pc (s : string) : LambdaPC.Expr.pc =
   let lexbuf = Lexing.from_string s in
-  let ast = Parser.pcprog Lexer.read lexbuf in
-  ast
+  parse_with "<stdin>" lexbuf (fun lb ->
+      let ast = Parser.pcprog Lexer.read lb in
+      Resolve.resolve_pc_fun_top ast)
 
 let parseFromFile (filename : string) : LambdaPC.Expr.t =
-  let f = In_channel.open_bin filename in
-  let lexbuf = Lexing.from_channel f in
-  let ast = Parser.prog Lexer.read lexbuf in
-  ast
+  In_channel.with_open_bin filename (fun f ->
+      let lexbuf = Lexing.from_channel f in
+      parse_with filename lexbuf (fun lb ->
+          let ast = Parser.prog Lexer.read lb in
+          Resolve.resolve_pc_top ast))
 
 let eval e =
   print_endline (LambdaPC.Expr.pretty_string_of_t e ^ "\n->*\n");
@@ -50,15 +82,14 @@ let eval e =
 let leval e =
   print_endline (LambdaC.Expr.pretty_string_of_t e ^ "\n->*\n");
   let eval_closed = match !dim with
-             | 2 -> LEval2.eval LambdaC.VariableMap.empty
-             | 3 -> LEval3.eval LambdaC.VariableMap.empty
-             | 4 -> LEval4.eval LambdaC.VariableMap.empty
+             | 2 -> LEval2.eval VariableMap.empty
+             | 3 -> LEval3.eval VariableMap.empty
+             | 4 -> LEval4.eval VariableMap.empty
              | d -> failwith @@ "Please add evaluation module for dimension " ^ string_of_int d ^ "\n"
   in
   let result = eval_closed e in
   print_endline (LambdaC.Val.string_of_t result ^ "\n")
 
-  
 
 let omega tp e1 e2 =
   leval LambdaPC.SymplecticForm.(omega tp (psi_of e1) (psi_of e2))

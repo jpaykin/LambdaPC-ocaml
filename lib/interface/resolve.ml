@@ -1,0 +1,194 @@
+open Ident
+
+exception Error of { loc : Loc.t option; msg : string }
+
+type env = (Symbol.t * Symbol.t) list
+
+(* Does our symbol exist in the local env? *)
+let rec lookup_local (env : env) (key : Symbol.t) : Symbol.t option =
+  match env with
+  | [] -> None
+  | (sym, id) :: tl ->
+      if Symbol.Id.equal sym key then Some id else lookup_local tl key
+
+(* Resolve first in local env, then in the global symbol binding map. *)
+let lookup (env : env) (key : Symbol.t) : Symbol.t option =
+  match lookup_local env key with
+  | Some id -> Some id
+  | None -> Symbol.Resolve_scope.resolve_binding key
+
+let freshen (x : Ident.t) : Ident.t =
+  let fresh = Fresh.fresh ~hint:x.text () in
+  { x with sym = fresh; text = Symbol.Id.name fresh }
+
+(* Keep location information but rewrite name/text *)
+let rewrite_var (binder_sym : Symbol.t) (site : Ident.t) : Ident.t =
+  { site with sym = binder_sym; text = Symbol.Id.name binder_sym }
+
+let rec resolve_c (env : env) (e : Ast.Expr.t) : Ast.Expr.t =
+  let loc = e.loc in
+  let mk node = { e with node; loc } in
+  match e.node with
+  | Var x -> (
+      match lookup env x.sym with
+      | Some fresh_x -> mk (Var (rewrite_var fresh_x x))
+      | None ->
+          raise (Error { loc = x.loc; msg = "unbound LambdaC variable " ^ x.text })
+    )
+
+  | Zero -> mk Zero
+
+  | Const n -> mk (Const n)
+
+  | Plus (a, b) ->
+      mk (Plus (resolve_c env a, resolve_c env b))
+
+  | Scale (a, b) ->
+      mk (Scale (resolve_c env a, resolve_c env b))
+
+  | Pair (a, b) ->
+      mk (Pair (resolve_c env a, resolve_c env b))
+
+  | App (f, x) ->
+      mk (App (resolve_c env f, resolve_c env x))
+
+  | Let { x; a; body } ->
+      let a' = resolve_c env a in
+      let x' = freshen x in
+      let env' = (x.sym, x'.sym) :: env in
+      let body' =
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_c env' body)
+      in
+      mk (Let { x = x'; a = a'; body = body' })
+
+  | Lambda { x; tp; body } ->
+      let x' = freshen x in
+      let env' = (x.sym, x'.sym) :: env in
+      let body' =
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_c env' body)
+      in
+      mk (Lambda { x = x'; tp; body = body' })
+
+  | Case { scrut; x1; a1; x2; a2 } ->
+      let scrut' = resolve_c env scrut in
+
+      let x1' = freshen x1 in
+      let env1 = (x1.sym, x1'.sym) :: env in
+      let a1' =
+        Symbol.Resolve_scope.with_binding x1.sym x1'.sym
+          (fun () -> resolve_c env1 a1)
+      in
+
+      let x2' = freshen x2 in
+      let env2 = (x2.sym, x2'.sym) :: env in
+      let a2' =
+        Symbol.Resolve_scope.with_binding x2.sym x2'.sym
+          (fun () -> resolve_c env2 a2)
+      in
+
+      mk (Case { scrut = scrut'; x1 = x1'; a1 = a1'; x2 = x2'; a2 = a2' })
+
+let resolve_c_top (e : Ast.Expr.t) : Ast.Expr.t =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_c [] e)
+
+let rec resolve_pc (env_pc : env) (env_c : env) (e : LambdaPC.Expr.t)
+  : LambdaPC.Expr.t =
+  let loc = e.loc in
+  let mk node = { e with node; loc } in
+  match e.node with
+  | Var x -> (
+      match lookup env_pc x.sym with
+      | Some fresh_x -> mk (Var (rewrite_var fresh_x x))
+      | None ->
+          raise (Error { loc = x.loc; msg = "unbound LambdaPC variable " ^ x.text })
+    )
+
+  | Let { x; expr; body } ->
+      let expr' = resolve_pc env_pc env_c expr in
+      let x' = freshen x in
+      let env_pc' = (x.sym, x'.sym) :: env_pc in
+      let body' =
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_pc env_pc' env_c body)
+      in
+      mk (Let { x = x'; expr = expr'; body = body' })
+
+  | LExpr le ->
+      mk (LExpr (resolve_c env_c le))
+
+  | Phase (le, t) ->
+      mk (Phase (resolve_c env_c le, resolve_pc env_pc env_c t))
+
+  | Prod (a, b) ->
+      mk (Prod (resolve_pc env_pc env_c a, resolve_pc env_pc env_c b))
+
+  | Pow (t, le) ->
+      mk (Pow (resolve_pc env_pc env_c t, resolve_c env_c le))
+
+  | CasePauli { scrut; tx; tz } ->
+      mk (CasePauli
+            { scrut = resolve_pc env_pc env_c scrut
+            ; tx = resolve_pc env_pc env_c tx
+            ; tz = resolve_pc env_pc env_c tz
+            })
+
+  | In1 { tp; v } ->
+      mk (In1 { tp; v = resolve_pc env_pc env_c v })
+
+  | In2 { tp; v } ->
+      mk (In2 { tp; v = resolve_pc env_pc env_c v })
+
+  | CasePTensor { scrut; x1; t1; x2; t2 } ->
+      let scrut' = resolve_pc env_pc env_c scrut in
+      let x1' = freshen x1 in
+      let env_pc1 = (x1.sym, x1'.sym) :: env_pc in
+      let t1' =
+        Symbol.Resolve_scope.with_binding x1.sym x1'.sym
+          (fun () -> resolve_pc env_pc1 env_c t1)
+      in
+
+      let x2' = freshen x2 in
+      let env_pc2 = (x2.sym, x2'.sym) :: env_pc in
+      let t2' =
+        Symbol.Resolve_scope.with_binding x2.sym x2'.sym
+          (fun () -> resolve_pc env_pc2 env_c t2)
+      in
+
+      mk (CasePTensor { scrut = scrut'; x1 = x1'; t1 = t1'; x2 = x2'; t2 = t2' })
+
+  | App (f, arg) ->
+      mk (App (resolve_pc_fun env_pc env_c f, resolve_pc env_pc env_c arg))
+
+  | Force p ->
+      mk (Force (resolve_p env_pc env_c p))
+
+and resolve_pc_fun (env_pc : env) (env_c : env) (f : LambdaPC.Expr.pc)
+  : LambdaPC.Expr.pc =
+  let loc = f.loc in
+  match f.node with
+  | Lam { x; tp; body } ->
+      let x' = freshen x in
+      let env_pc' = (x.sym, x'.sym) :: env_pc in
+      let body' =
+        Symbol.Resolve_scope.with_binding x.sym x'.sym
+          (fun () -> resolve_pc env_pc' env_c body)
+      in
+      { f with loc; node = Lam { x = x'; tp; body = body' } }
+
+and resolve_p (env_pc : env) (env_c : env) (p : LambdaPC.Expr.p)
+  : LambdaPC.Expr.p =
+  let loc = p.loc in
+  match p.node with
+  | Suspend e ->
+      { p with loc; node = Suspend (resolve_pc env_pc env_c e) }
+
+let resolve_pc_top (e : LambdaPC.Expr.t) : LambdaPC.Expr.t =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_pc [] [] e)
+
+let resolve_pc_fun_top (f : LambdaPC.Expr.pc) : LambdaPC.Expr.pc =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_pc_fun [] [] f)
+
+let resolve_p_top (p : LambdaPC.Expr.p) : LambdaPC.Expr.p =
+  Symbol.Resolve_scope.with_scope (fun () -> resolve_p [] [] p)

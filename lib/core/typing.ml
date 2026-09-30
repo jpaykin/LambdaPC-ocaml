@@ -1,7 +1,9 @@
+module ZZ = Z
 open Scalars
+open Ident
 open LambdaPC
 
-module VariableSet = LambdaC.VariableSet
+module VariableSet = IdentSet
 module TypeInformation = LambdaC.TypeInformation
 open TypeInformation
 
@@ -12,7 +14,7 @@ module LinearityTyping = struct
     (fun (tp1,tp2) -> "|" ^ Type.string_of_t tp1 ^ " -o " ^ Type.string_of_t tp2 ^ "|")
     Expr.pretty_string_of_pc
   let pp_info info = print_string @@ string_of_info info
-  let assert_type = TypeInformation.assert_type Type.string_of_t
+  let assert_type = TypeInformation.assert_type Type.string_of_t Type.eq
 
   let assert_pc_type (tp : LambdaC.Type.t) : Type.t =
     match Type.t_of_ltype tp with
@@ -21,37 +23,34 @@ module LinearityTyping = struct
       terr @@ "Expected a LambdaPC-compatible type, received: " ^ LambdaC.Type.string_of_t tp
 
   let assert_unit_type (tp : LambdaC.Type.t) : unit =
-    match tp with
+    match tp.node with
     | Unit -> ()
     | _ -> terr @@ "Expected a unit type, received: " ^ LambdaC.Type.string_of_t tp
 
   let assert_ptensor_type (tp : Type.t) : Type.t * Type.t =
-    match tp with
+    match tp.node with
     | PTensor(tp1,tp2) -> (tp1,tp2)
     | _ -> terr @@ "Expected a PTensor type, received: " ^ Type.string_of_t tp
 
+  let annot (a : Expr.t) (tp : Type.t) : Expr.t =
+    match a.ty with
+    | Some tp0 -> assert_type tp tp0; a
+    | None -> { a with ty=Some tp }
+
   let rec typecheck' (ctx : Type.t VariableMap.t) (e : Expr.t) : type_information =
-    match e with
+    match e.node with
     | Var x ->
       {
-        expr = Var x;
+        expr = HOAS.var x;
         tp = type_of_var ctx x;
         usage = var_usage x
       }
-    | Annot(e',tp) ->
-      let info' = typecheck' ctx e' in
-      assert_type tp info'.tp;
-      {
-        expr = Annot(info'.expr, tp);
-        tp = tp;
-        usage = info'.usage
-      }
-    | Let (e1,x,e2) ->
+    | Let { x; expr = e1; body = e2 } ->
       let info1 = typecheck' ctx e1 in
       let ctx' = VariableMap.add x info1.tp ctx in
       let info2 = typecheck' ctx' e2 in
       {
-        expr = Let(Annot(info1.expr, info1.tp), x, info2.expr);
+        expr = Expr.t_of_node @@ Let{ expr=annot info1.expr info1.tp; x; body=info2.expr};
         tp = info2.tp;
         usage = disjoint_usage_with info1 x info2
       }
@@ -59,7 +58,7 @@ module LinearityTyping = struct
       let info' = typecheckC ctx a in
       let tp' = assert_pc_type info'.tp in
       {
-        expr = LExpr info'.expr;
+        expr = HOAS.vec info'.expr;
         tp = tp';
         usage = info'.usage
       }
@@ -68,7 +67,7 @@ module LinearityTyping = struct
       let info2 = typecheck' ctx e2 in
       assert_unit_type info1.tp;
       {
-        expr = Phase(info1.expr, info2.expr);
+        expr = HOAS.phase (info1.expr) (info2.expr);
         tp = info2.tp;
         usage = same_usage info1 info2
       }
@@ -78,7 +77,7 @@ module LinearityTyping = struct
       let info2 = typecheck' ctx e2 in
       assert_type info1.tp info2.tp;
       {
-        expr = Prod(info1.expr, info2.expr);
+        expr = HOAS.(info1.expr * info2.expr);
         tp = info1.tp;
         usage = same_usage info1 info2
       }
@@ -87,18 +86,21 @@ module LinearityTyping = struct
       let info2 = typecheckC ctx a2 in
       assert_unit_type info2.tp;
       {
-        expr = Pow(info1.expr, info2.expr);
+        expr = HOAS.pow (info1.expr) (info2.expr);
         tp = info1.tp;
         usage = disjoint_usage info1 info2
       }
-    | CasePauli(e0,ex,ez) ->
+    | CasePauli { scrut = e0; tx = ex; tz = ez } ->
       let info0 = typecheck' ctx e0 in
       let infox = typecheck' ctx ex in
       let infoz = typecheck' ctx ez in
-      assert_type Pauli info0.tp;
+      assert_type (Type.t_of_node Pauli) info0.tp;
       assert_type infox.tp infoz.tp;
       {
-        expr = CasePauli (Annot(info0.expr, Pauli), infox.expr, infoz.expr);
+        expr = Expr.t_of_node @@ CasePauli
+          { scrut = annot info0.expr (Type.t_of_node Pauli);
+            tx = infox.expr; tz = infoz.expr
+          };
         tp = infox.tp;
         usage = fun u_in u_out ->
           VariableSet.exists_usage_subset u_in (fun u_mid ->
@@ -107,50 +109,55 @@ module LinearityTyping = struct
             && infoz.usage u_mid u_out
             )
       }
-    | In1 (e1,tp2) ->
+    | In1 { v = e1; tp = tp2 } ->
       let info1 = typecheck' ctx e1 in
       {
-        expr = In1(info1.expr,tp2);
-        tp = PTensor(info1.tp,tp2);
+        expr = Expr.t_of_node (In1 { v = info1.expr; tp = tp2 });
+        tp = Type.t_of_node (PTensor(info1.tp, tp2));
         usage = info1.usage
       }
-    | In2 (tp1,e2) ->
+    | In2 { v = e2; tp = tp1 } ->
       let info2 = typecheck' ctx e2 in
       {
-        expr = In2(tp1,info2.expr);
-        tp = PTensor(tp1,info2.tp);
+        expr = Expr.t_of_node (In2 { v = info2.expr; tp = tp1 });
+        tp = Type.t_of_node (PTensor(tp1, info2.tp));
         usage = info2.usage
       }
-    | CasePTensor (e0,x1,e1,x2,e2) ->
+    | CasePTensor { scrut = e0; x1; t1 = e1; x2; t2 = e2 } ->
       let info0 = typecheck' ctx e0 in
       let (tp1,tp2) = assert_ptensor_type info0.tp in
       let info1 = typecheck' (VariableMap.add x1 tp1 ctx) e1 in
       let info2 = typecheck' (VariableMap.add x2 tp2 ctx) e2 in
       assert_type info1.tp info2.tp;
       {
-        expr = CasePTensor(Annot(info0.expr,info0.tp), x1, info1.expr, x2, info2.expr);
+        expr = Expr.t_of_node @@ CasePTensor
+          { scrut = annot info0.expr info0.tp;
+            x1; t1 = info1.expr;
+            x2; t2 = info2.expr
+          };
         tp = info1.tp;
         usage = disjoint_usage_branch info0 x1 info1 x2 info2
       }
-    | Apply(pc1,e2) ->
+    | App (pc1, e2) ->
       let info1 = typecheck_pc ctx pc1 in
       let info2 = typecheck' ctx e2 in
       let (tp1,tp2) = info1.tp in
       assert_type tp1 info2.tp;
       {
-        expr = Apply(info1.expr, info2.expr);
+        expr = Expr.t_of_node (App (pc1, info2.expr));
         tp = tp2;
         usage = disjoint_usage info1 info2 (* is this right? *)
       }
-    | Force (Suspend e') -> typecheck' ctx e'
+    | Force p -> 
+        (match p.node with Suspend e' -> typecheck' ctx e')
   and typecheckC (ctx : Type.t VariableMap.t) (a : LambdaC.Expr.t) =
     LambdaC.Typing.typecheck' (VariableMap.map Type.ltype_of_t ctx) a
   and typecheck_pc ctx pc =
-    let (Lam(x,tp,t)) = pc in
+    let Lam { x; tp; body = t } = pc.node in
     let info = typecheck' (VariableMap.add x tp ctx) t in
     {
-      expr = Lam(x,tp,info.expr);
-      tp = (tp,info.tp);
+      expr = Expr.pc_of_node (Lam { x; tp; body = info.expr });
+      tp = (tp, info.tp);
       usage = fun u1 u2 ->
         not (VariableSet.mem x (VariableSet.union u1 u2))
         && info.usage (VariableSet.add x u1) u2
@@ -176,9 +183,10 @@ end
 module SMT = struct
   open Smtml
 
+  let const_val x = Value.Int (ZZ.of_int x)
   let pair e1 e2 = Expr.list [e1; e2]
-  let fst tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 0))
-  let snd tp e = Expr.binop tp Ty.Binop.At e (Expr.value (Value.Int 1))
+  let fst tp e = Expr.binop tp Ty.Binop.At e (Expr.value (const_val 0))
+  let snd tp e = Expr.binop tp Ty.Binop.At e (Expr.value (const_val 1))
   (*let lambda (x : Symbol.t) (e : Expr.t) = Smtml.Expr.list [Smtml.Expr.symbol x; e]
   *)
 
@@ -265,20 +273,20 @@ module SmtLambdaCExpr = struct
     *)
 
     let concat = VariableMap.union (fun _ _ _ -> None)
-    let rec eta_expand_var env tp : Type.t VariableMap.t * Expr.t =
-      match tp with
+    let rec eta_expand_var (tp : Type.t) : Type.t VariableMap.t * Expr.t =
+      match tp.node with
       | Type.Unit ->
-          let x = VariableEnvironment.fresh env in
-          (VariableMap.singleton x Type.Unit, Var x)
+          let x = Ident.fresh() in
+          (VariableMap.singleton x HOAS.u, HOAS.var x)
       | Type.Sum(tp1,tp2) ->
-          let (gamma1,e1) = eta_expand_var env tp1 in
-          let (gamma2,e2) = eta_expand_var env tp2 in
+          let (gamma1,e1) = eta_expand_var tp1 in
+          let (gamma2,e2) = eta_expand_var tp2 in
           (* gamma1(x1)=e1 such that ctx1 |- e1 :  *)
-          (concat gamma1 gamma2, Pair(e1,e2))
+          (concat gamma1 gamma2, HOAS.pair e1 e2)
       | _ -> terr "Called eta_expand_var on function type"
 
     let string_of_VariableMap string_of_a gamma =
-      "[" ^ VariableMap.fold (fun x tp s -> string_of_int x ^ " : " ^ string_of_a tp ^ ", " ^ s) gamma "]\n"
+      "[" ^ VariableMap.fold (fun x tp s -> Ident.string_of_t x ^ " : " ^ string_of_a tp ^ ", " ^ s) gamma "]\n"
     
 
     (* The result of eta ctx should be a substitution map gamma
@@ -291,7 +299,7 @@ module SmtLambdaCExpr = struct
     let eta ctx : Expr.t VariableMap.t * Type.t VariableMap.t =
 
       let expand x tp (gamma0,ctx0) =
-        let (ctx',a') = eta_expand_var !HOAS.var_env tp in
+        let (ctx',a') = eta_expand_var tp in
         (VariableMap.add x a' gamma0, concat ctx0 ctx')
       in
 
@@ -311,24 +319,24 @@ module SmtLambdaCExpr = struct
     *)
     type normal =
       NConst of int
-    | NLambda of Variable.t * Type.t * normal
+    | NLambda of Ident.t * Type.t * normal
     | NPair of normal * normal
     | Annot of neutral * Type.t
     | Neutral of neutral
     and neutral =
-      NVar of Variable.t
+      NVar of Ident.t
     | NApply of neutral * normal
-    | NCase of neutral * Variable.t * normal * Variable.t * normal
+    | NCase of neutral * Ident.t * normal * Ident.t * normal
     | NPlus of neutral * normal
     | NScale of normal * neutral
 
-    let rec nzero env tp = 
-      match tp with
+    let rec nzero (tp : Type.t) = 
+      match tp.node with
       | LambdaC.Type.Unit -> NConst 0
-      | Sum(tp1,tp2) -> NPair(nzero env tp1, nzero env tp2)
+      | Sum(tp1,tp2) -> NPair(nzero tp1, nzero tp2)
       | Arrow(tp1,tp2) ->
-        let x = VariableEnvironment.fresh env in
-        NLambda(x,tp1,nzero env tp2)
+        let x = Ident.fresh() in
+        NLambda(x,tp1,nzero tp2)
 
     
     let rec nscale e1 e2 =
@@ -344,103 +352,109 @@ module SmtLambdaCExpr = struct
       | _, Annot(e2',tp) -> Annot (NScale(e1,e2'), tp)
       | _, _ -> failwith "[Typing.SmtLambdaC.Expr.nscale] type mismatch"
 
-    let rec annot e tp =
-      match e,tp with
+    let rec annot e (tp : Ast.Type.t) =
+      match e,tp.node with
       | NLambda(x,_,e'),Type.Arrow(tp1,tp2) -> NLambda(x,tp1,annot e' tp2)
       | NPair(e1,e2),Type.Sum(tp1,tp2) -> NPair(annot e1 tp1, annot e2 tp2)
       | Neutral e', _ -> Annot(e',tp)
       | Annot(e',_),_ -> Annot(e',tp)
       | _, _ -> failwith "[Typing.SmtLambdaC.Expr.annot] type mismatch"
 
-    let rec subst env from to_ e =
+    let rec subst from to_ e =
       match e with
       | NConst r -> NConst r
       | NLambda(x,tp,e') ->
-        if x=from then NLambda(x,tp,e') else NLambda(x,tp,subst env from to_ e')
-      | NPair(e1,e2) -> NPair(subst env from to_ e1, subst env from to_ e2)
-      | Neutral e' -> substN env from to_ e'
-      | Annot(e',tp) -> annot (substN env from to_ e') tp
-    and substN env from to_ e =
+        if Ident.equal x from then NLambda(x,tp,e') else NLambda(x,tp,subst from to_ e')
+      | NPair(e1,e2) -> NPair(subst from to_ e1, subst from to_ e2)
+      | Neutral e' -> substN from to_ e'
+      | Annot(e',tp) -> annot (substN from to_ e') tp
+    and substN from to_ e =
       match e with
-      | NVar x -> if x=from then to_ else Neutral (NVar x)
-      | NApply(e1,e2) -> napply env (substN env from to_ e1) (subst env from to_ e2) 
+      | NVar x -> if Ident.equal x from then to_ else Neutral (NVar x)
+      | NApply(e1,e2) -> napply (substN from to_ e1) (subst from to_ e2) 
       | NCase(e',x1,e1,x2,e2) ->
-        let e1' = if x1=from then e1 else subst env from to_ e1 in
-        let e2' = if x2=from then e2 else subst env from to_ e2 in
-        ncase env (substN env from to_ e') x1 e1' x2 e2'
-      | NPlus(e1,e2) -> nplus env (substN env from to_ e1) (subst env from to_ e2)
-      | NScale(e1,e2) -> nscale (subst env from to_ e1) (substN env from to_ e2)
+        let e1' = if Ident.equal x1 from then e1 else subst from to_ e1 in
+        let e2' = if Ident.equal x2 from then e2 else subst from to_ e2 in
+        ncase (substN from to_ e') x1 e1' x2 e2'
+      | NPlus(e1,e2) -> nplus (substN from to_ e1) (subst from to_ e2)
+      | NScale(e1,e2) -> nscale (subst from to_ e1) (substN from to_ e2)
 
 
-    and napply env e1 e2 =
+    and napply e1 e2 =
       match e1 with
-      | NLambda(x,_,e1') -> subst env x e2 e1'
+      | NLambda(x,_,e1') -> subst x e2 e1'
       | Neutral e1' -> Neutral (NApply(e1',e2))
-      | Annot(e1',Arrow(_,tp2)) -> Annot (NApply(e1',e2), tp2)
+      | Annot(e1',tp) -> (
+        match tp.node with
+        | Arrow(_,tp2) -> Annot (NApply(e1',e2), tp2)
+        | _ -> failwith "[Typing.SmtLambdaC.Expr.napply] type mismatch"
+      )
       | _ -> failwith "[Typing.SmtLambdaC.Expr.napply] type mismatch"
 
-    and nplus env e1 e2 =
+    and nplus e1 e2 =
       match e1, e2 with
       | NConst r1, NConst r2 -> NConst (r1 + r2)
       | NLambda(x1,tp1,e1'), NLambda(x2,_,e2') ->
-        let x = VariableEnvironment.fresh env in
+        let x = Ident.fresh() in
         NLambda(x,tp1,
-          nplus env (subst env x1 (Neutral (NVar x)) e1')
-                    (subst env x2 (Neutral (NVar x)) e2'))
+          nplus (subst x1 (Neutral (NVar x)) e1')
+                    (subst x2 (Neutral (NVar x)) e2'))
       | NPair (e1',e1''), NPair(e2',e2'') ->
-        NPair(nplus env e1' e2', nplus env e1'' e2'')
+        NPair(nplus e1' e2', nplus e1'' e2'')
       | Neutral e1', _ -> Neutral (NPlus(e1',e2))
       | Annot(e1',tp), _ -> Annot(NPlus(e1',e2), tp)
       | _, Neutral e2' -> Neutral (NPlus(e2', e1))
       | _, _ -> failwith "[Typing.SmtLambdaC.Expr.nplus] type mismatch"
 
-    and ncase env e x1 e1 x2 e2 =
+    and ncase e x1 e1 x2 e2 =
       match e with
       | NPair(e1',e2') ->
-        nplus env (subst env x1 e1' e1) (subst env x2 e2' e2)
+        nplus (subst x1 e1' e1) (subst x2 e2' e2)
       | Neutral e' ->
         Neutral (NCase(e',x1,e1,x2,e2))
       | Annot(e',_) ->
         Neutral (NCase(e',x1,e1,x2,e2))
       | _ -> failwith "[Typing.SmtLambdaC.Expr.ncase] type mismatch"
 
-    let rec normalize' env (a : Expr.t) =
-      match a with
-      | Expr.Var x -> Neutral (NVar x)
-      | Let(a1,x,a2) ->
-        subst env x (normalize' env a1) (normalize' env a2)
-      | Zero tp -> nzero env tp
-      | Annot(a',_) -> normalize' env a'
-      | Plus(a1,a2) -> nplus env (normalize' env a1) (normalize' env a2)
+    let rec normalize' (a : Expr.t) =
+      match a.node with
+      | Var x -> Neutral (NVar x)
+      | Let { x; a = a1; body = a2 } ->
+        subst x (normalize' a1) (normalize' a2)
+      | Zero -> (match a.ty with
+                | Some tp -> nzero tp
+                | None -> failwith "[Typing.SmtLambdaC.Expr.normalize'] missing type annotation"
+            )
+      | Plus(a1,a2) -> nplus (normalize' a1) (normalize' a2)
       | Const r -> NConst r
-      | Scale(a1,a2) -> nscale (normalize' env a1) (normalize' env a2)
-      | Pair(a1,a2) -> NPair(normalize' env a1, normalize' env a2)
-      | Case(a',x1,a1,x2,a2) ->
-        ncase env (normalize' env a')
-              x1  (normalize' env a1)
-              x2  (normalize' env a2)
-      | Lambda(x,tp,a') -> NLambda(x,tp,normalize' env a')
-      | Apply(a1,a2) -> napply env (normalize' env a1) (normalize' env a2)
+      | Scale(a1,a2) -> nscale (normalize' a1) (normalize' a2)
+      | Pair(a1,a2) -> NPair(normalize' a1, normalize' a2)
+      | Case { scrut = a'; x1; a1; x2; a2 } ->
+        ncase (normalize' a')
+              x1  (normalize' a1)
+              x2  (normalize' a2)
+      | Lambda { x; tp; body = a' } -> NLambda(x,tp,normalize' a')
+      | App(a1,a2) -> napply (normalize' a1) (normalize' a2)
 
     let rec expr_of_normal (e : normal) : Expr.t =
       match e with
-      | NConst r -> Const r
-      | NLambda(x,tp,e') -> Lambda(x,tp,expr_of_normal e')
-      | NPair(e1,e2) -> Pair(expr_of_normal e1, expr_of_normal e2)
+      | NConst r -> HOAS.const r
+      | NLambda(x,tp,e') -> Expr.t_of_node @@ Lambda { x; tp; body = expr_of_normal e' }
+      | NPair(e1,e2) -> HOAS.pair (expr_of_normal e1) (expr_of_normal e2)
       | Neutral e' -> expr_of_neutral e'
-      | Annot(e',tp) -> Annot(expr_of_neutral e', tp)
+      | Annot(e',tp) -> LambdaC.Typing.annot (expr_of_neutral e') tp
     and expr_of_neutral (e : neutral) : Expr.t =
-      match e with
+      Expr.t_of_node @@ match e with
       | NVar x -> Var x
-      | NApply(e1,e2) -> Apply(expr_of_neutral e1, expr_of_normal e2)
-      | NCase(e0,x1,e1,x2,e2) -> Case(expr_of_neutral e0,x1,expr_of_normal e1,x2,expr_of_normal e2)
+      | NApply(e1,e2) -> App(expr_of_neutral e1, expr_of_normal e2)
+      | NCase(e0,x1,e1,x2,e2) -> Case { scrut = expr_of_neutral e0; x1; a1 = expr_of_normal e1; x2; a2 = expr_of_normal e2 }
       | NPlus(e1,e2) -> Plus(expr_of_neutral e1, expr_of_normal e2)
       | NScale(e1,e2) -> Scale(expr_of_normal e1, expr_of_neutral e2)
 
     let normalize a =
       debug @@  "Normalizing: " ^ Expr.pretty_string_of_t a ^ "\n";
-      HOAS.update_env a;
-      let e = normalize' (!HOAS.var_env) a in
+      Expr.update_env a;
+      let e = normalize' a in
       let a' = expr_of_normal e in
       debug @@  "Got normalized expression: " ^ Expr.pretty_string_of_t a' ^ "\n";
       a'
@@ -451,19 +465,19 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   open LambdaC
   module EvalZd = Eval(Zd)
 
-  let modd e = Smtml.Expr.binop Ty_int Rem e (Smtml.Expr.value (Int Zd.Dim.dim))
+  let modd e = Smtml.Expr.binop Ty_int Rem e (Smtml.Expr.value (SMT.const_val (Zd.Dim.dim)))
   let ( + ) e1 e2 = modd @@ Smtml.Expr.binop Ty_int Add e1 e2
   let ( * ) e1 e2 = modd @@ Smtml.Expr.binop Ty_int Mul e1 e2
 
   let smtml_of_type (tp : LambdaC.Type.t) : Smtml.Ty.t =
-    match tp with
+    match tp.node with
     | Unit -> Smtml.Ty.Ty_int
     | Sum (_, _) -> Smtml.Ty.Ty_list
     | Arrow (_, _) -> Smtml.Ty.Ty_list
 
-  let var (ctx : Smtml.Symbol.t VariableMap.t) (x : LambdaC.Variable.t) : Smtml.Expr.t =
+  let var (ctx : Smtml.Symbol.t VariableMap.t) (x : Ident.t) : Smtml.Expr.t =
     Smtml.Expr.symbol @@ VariableMap.find x ctx
-  let const (r : int) : Smtml.Expr.t = modd (Smtml.Expr.value (Int r))
+  let const (r : int) : Smtml.Expr.t = modd (Smtml.Expr.value (SMT.const_val r))
 
   (*
   let lambda x e = SMT.lambda x e
@@ -472,10 +486,10 @@ module SmtLambdaC (Zd : Z_SIG) = struct
 
   (* typed symbols are for free variables *)
   let make_typed_symbol tp x =
-    Smtml.Symbol.make (smtml_of_type tp) ("x" ^ string_of_int x)
+    Smtml.Symbol.make_const (smtml_of_type tp) ("x" ^ Ident.string_of_t x)
   (* untyped symbols are for bound variables *)
   let make_untyped_symbol x =
-    Smtml.Symbol.make Smtml.Ty.Ty_none ("x" ^ string_of_int x)
+    Smtml.Symbol.make_const Smtml.Ty.Ty_none ("x" ^ Ident.string_of_t x)
   (*
   [@@@warning "-32"]
   let fresh_symbol tp = 
@@ -484,7 +498,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     *)
 
   let rec zero (tp : Type.t) : Smtml.Expr.t =
-    match tp with
+    match tp.node with
     | Unit -> const 0
     | Sum (tp1, tp2) -> SMT.pair (zero tp1) (zero tp2)
     (*| Arrow(tp1, tp2) -> lambda (fresh_symbol tp1) (zero tp2)*)
@@ -494,7 +508,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   let snd tp2 e = SMT.snd (smtml_of_type tp2) e
 
   let rec plus (tp : Type.t) e1 e2 =
-    match tp with
+    match tp.node with
     | Unit -> e1 + e2
     | Sum(tp1, tp2) ->
         let e1' = plus tp1 (fst tp1 e1) (fst tp1 e2) in
@@ -510,7 +524,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     | _ -> terr @@ "SmtLambdaC has assumed no arrow types"
 
   let rec scale (tp : Type.t) e e' =
-    match tp with
+    match tp.node with
     | Unit -> e * e'
     | Sum(tp1, tp2) ->
       let e1' = scale tp1 e (fst tp1 e') in
@@ -533,29 +547,31 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   (*exception TypeError of (string * Expr.t list * Type.t option)*)
   (* Assumes that all annotations in a are correct and that the expression is actually well-typed; this function just infers the type from the expression *)
   let rec get_type (ctx : Type.t VariableMap.t) (a : Expr.t) : Type.t =
-    match a with
+    match a.node with
     | Var x -> type_of_var ctx x
-    | Let(a1,x,a2) -> 
+    | Let { x; a = a1; body = a2 } -> 
       let tp1 = get_type ctx a1 in
       get_type (VariableMap.add x tp1 ctx) a2
-    | Annot(_,tp) -> tp
-    | Zero tp -> tp
+    | Zero -> (match a.ty with
+              | Some ty -> ty
+              | None -> terr @@ "Zero missing annotation"
+              )
     | Plus(a1,_) -> get_type ctx a1
-    | Const _ -> Type.Unit
+    | Const _ -> HOAS.u
     | Scale(_,a2) -> get_type ctx a2
     | Pair(a1,a2) ->
       let tp1 = get_type ctx a1 in
       let tp2 = get_type ctx a2 in
-      Type.Sum(tp1,tp2)
-    | Case(a0,x1,a1,_,_) ->
+      HOAS.(tp1 ++ tp2)
+    | Case { scrut = a0; x1; a1; _ } ->
       let tp0 = get_type ctx a0 in
       let (tp1,_) = Typing.assert_sum_type tp0 in
       get_type (VariableMap.add x1 tp1 ctx) a1
       
-    | Lambda(x,tp1,a') ->
+    | Lambda { x; tp = tp1; body = a' } ->
       let tp2 = get_type (VariableMap.add x tp1 ctx) a' in
-      Type.Arrow(tp1,tp2)
-    | Apply(a1,_) ->
+      HOAS.(lolli tp1 tp2)
+    | App(a1,_) ->
       let tp0 = get_type ctx a1 in
       let (_,tp2) = Typing.assert_arrow_type tp0 in
       tp2
@@ -564,7 +580,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   (* Assume that a has been normalized and neither tps nor tp contain any occurrances of the Arrow type. In that case, a should not contain any instances of Zero, Let, Apply or Lambda
   *)
   let rec smtml_of_expr (tps : Type.t VariableMap.t) (ctx : Smtml.Symbol.t VariableMap.t) (a : Expr.t) tp =
-    match a with
+    match a.node with
     | Var x -> var ctx x
     (*
     | Let (a1,x,a2) ->
@@ -575,14 +591,16 @@ module SmtLambdaC (Zd : Z_SIG) = struct
         SMT.let_in (Smtml.Expr.symbol s) e1 e2
     *)
 
-    | Zero tp -> zero tp
-    | Annot (a, _) -> smtml_of_expr tps ctx a tp
+    | Zero -> zero (match a.ty with
+              | Some ty -> ty
+              | None -> terr @@ "Zero missing annotation"
+              )
     | Plus (e1, e2) ->
       plus tp (smtml_of_expr tps ctx e1 tp)
               (smtml_of_expr tps ctx e2 tp)
     | Const r -> const r
     | Scale (e1, e2) ->
-      scale tp  (smtml_of_expr tps ctx e1 Type.Unit)
+      scale tp  (smtml_of_expr tps ctx e1 HOAS.u)
                 (smtml_of_expr tps ctx e2 tp)
     | Pair (e1, e2) ->
       let (tp1,tp2) = Typing.assert_sum_type tp in
@@ -590,7 +608,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       let e2' = smtml_of_expr tps ctx e2 tp2 in
       SMT.pair e1' e2'
 
-    | Case (e, x1, e1, x2, e2) ->
+    | Case {scrut=e; x1; a1=e1; x2; a2=e2} ->
       let tp0 = get_type tps e in
       let (tp1,tp2) = Typing.assert_sum_type tp0 in
       let s1 = make_untyped_symbol x1 in
@@ -599,7 +617,7 @@ module SmtLambdaC (Zd : Z_SIG) = struct
       let tps2 = VariableMap.add x2 tp2 tps in
       let ctx1 = VariableMap.add x1 s1 ctx in
       let ctx2 = VariableMap.add x2 s2 ctx in
-      let e' = smtml_of_expr tps ctx e (Sum (tp1, tp2)) in
+      let e' = smtml_of_expr tps ctx e HOAS.(tp1++tp2) in
       let e1' = smtml_of_expr tps1 ctx1 e1 tp in
       let e2' = smtml_of_expr tps2 ctx2 e2 tp in
       case tp1 tp2 tp e' s1 e1' s2 e2'
@@ -653,8 +671,8 @@ module SmtLambdaC (Zd : Z_SIG) = struct
   *)
 
   let rec value_of_smtml (tp : Type.t) (v : Smtml.Value.t) : Val.t =
-    match tp, v with
-    | Unit, Int r -> Val.Const (Zd.normalize r)
+    match tp.node, v with
+    | Unit, Int r -> Val.Const (Zd.normalize (ZZ.to_int r))
     | Sum (tp1,tp2), List [v1; v2] -> Val.Pair (value_of_smtml tp1 v1, value_of_smtml tp2 v2)
     | Arrow (_, _), List [_;_] -> 
       terr @@ "[smtml] Cannot coerce smtml value to LambdaC value of function type\n"
@@ -665,18 +683,17 @@ module SmtLambdaC (Zd : Z_SIG) = struct
         ^ "\tValue: " ^ Smtml.Value.to_string v ^ "\n"
         ^ "\tType: " ^ Type.string_of_t tp ^ "\n"
 
-  module VariableMap = LambdaC.VariableMap
   (* When we encounter a free variable in a, add a binding to the corresponding symbol *)
   let make_symbol_map (ctx : LambdaC.Type.t VariableMap.t) : Smtml.Symbol.t VariableMap.t =
     let f x tp = make_typed_symbol tp x in
     VariableMap.mapi f ctx
 
 
-  let instantiate model (x : Variable.t) (tp : Type.t) : Val.t =
+  let instantiate model (x : Ident.t) (tp : Type.t) : Val.t =
     let s = make_typed_symbol tp x in
     match Smtml.Model.evaluate model s with
     | Some v0 -> value_of_smtml tp v0
-    | None -> terr @@ "Could not instantiate model of variable x" ^ string_of_int x ^ "\n"
+    | None -> terr @@ "Could not instantiate model of variable x" ^ Ident.string_of_t x ^ "\n"
 
   let counterexample_of_model (ctx : Type.t VariableMap.t) model : Val.t VariableMap.t =
     VariableMap.mapi (instantiate model) ctx
@@ -695,8 +712,8 @@ module SmtLambdaC (Zd : Z_SIG) = struct
     *)
 
   let string_of_counterexample counter x1 x2 i1 i2 t1 t2 v1 v2 =
-    let x1_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.Expr.Var x1) in
-    let x2_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.Expr.Var x2) in
+    let x1_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.HOAS.var x1) in
+    let x2_str = LambdaPC.Expr.pretty_string_of_t (LambdaPC.HOAS.var x2) in
     let fx1 = "f(" ^ x1_str ^ ")" in
     let fx2 = "f(" ^ x2_str ^ ")" in
 
@@ -774,15 +791,15 @@ module SmtLambdaPC (S : SCALARS) = struct
   module EvalZd = Eval(S)
 
   let symplectic_check in_tp out_tp (f : LambdaPC.Expr.pc) : unit =
-    let (Lam(x,_,t)) = f in
+        let Lam { x; tp=_; body=t } = f.node in
         let in_tp' = LambdaPC.Type.ltype_of_t in_tp in
 
         (* create the expression lhs = omega(psiof(t)[x1/x],psiof(t)[x2/x])*)
         let a = LambdaPC.SymplecticForm.psi_of t in
         debug @@ "Got LambdaC expression: " ^ LambdaC.Expr.pretty_string_of_t a ^ "\n";
-        LambdaC.HOAS.update_env a;
-        let x1 = LambdaC.HOAS.fresh () in
-        let x2 = LambdaC.HOAS.fresh () in
+        LambdaC.Expr.update_env a;
+        let x1 = Ident.fresh_like x in
+        let x2 = Ident.fresh_like x in
         let a1 = LambdaC.Expr.rename_var x x1 a in
         let a2 = LambdaC.Expr.rename_var x x2 a in
         let lhs = LambdaPC.SymplecticForm.omega out_tp a1 a2 in
@@ -793,12 +810,12 @@ module SmtLambdaPC (S : SCALARS) = struct
         debug @@ "RHS: " ^ LambdaC.Expr.pretty_string_of_t rhs ^ "\n";
 
         (* check for equivalence *)
-        let ctx = LambdaC.VariableMap.of_seq @@ List.to_seq  [(x1,in_tp'); (x2,in_tp')] in
-        match SmtC.equiv LambdaC.Type.Unit ctx lhs rhs with
+        let ctx = VariableMap.add x1 in_tp' (VariableMap.singleton x2 in_tp') in
+        match SmtC.equiv LambdaC.HOAS.u ctx lhs rhs with
         | Ok _ -> ()
         | Error counter ->
-          let i1 = EvalZd.eval counter.inputs (Var x1) in
-          let i2 = EvalZd.eval counter.inputs (Var x2) in
+          let i1 = EvalZd.eval counter.inputs (HOAS.var x1) in
+          let i2 = EvalZd.eval counter.inputs (HOAS.var x2) in
           let t1 = LambdaPC.Expr.rename_var x x1 t in
           let t2 = LambdaPC.Expr.rename_var x x2 t in
           let v1 = EvalZd.eval counter.inputs t1 in

@@ -1,16 +1,23 @@
 {
     open Parser
+
+    exception LexError of string * Lexing.position * Lexing.position
 }
 
-let white = [' ' '\t' '\n']+
+let white = [' ' '\t']+
 let digit = ['0'-'9']
 let int = '-'? digit+
 let letter = ['a'-'z' 'A'-'Z']
-let id = letter+
+let id = letter (letter | digit | '_' | '\'')*
 
 rule read =
   parse
   | white { read lexbuf }
+  | '\n'
+    {
+      Lexing.new_line lexbuf;
+      read lexbuf
+    }
   | "var" {LVARTAG}
   | "let" { LET }
   | "in" { IN }
@@ -53,6 +60,13 @@ rule read =
   | "]" {RSQUARE}
 
   | int { INT (int_of_string (Lexing.lexeme lexbuf)) }
-  | id { ID (String.hash (Lexing.lexeme lexbuf)) }
+  | id { ID (Lexing.lexeme lexbuf) }
 
   | eof { EOF }
+
+  | _ as c
+      {
+        let sp = Lexing.lexeme_start_p lexbuf in
+        let ep = Lexing.lexeme_end_p lexbuf in
+        raise (LexError (Printf.sprintf "Unexpected character: %C" c, sp, ep))
+      }

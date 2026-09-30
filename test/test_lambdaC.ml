@@ -1,5 +1,6 @@
 open Alcotest
 open PCLib
+open Ident
 open Scalars
 open LambdaC
 open Test_scalars
@@ -33,32 +34,47 @@ module TestEval2 = TestEval(Z2)
 
 (* Additional unit tests for individual functions in LambdaC *)
 let test_expr_rename_var () =
-  let e1_test = Expr.(Lambda (1, Unit, Plus (Var 1, Var 2))) in
-  let e1' = Expr.rename_var 2 42 e1_test in
-  let e1_expected = Expr.Lambda(1, Unit, Plus (Var 1, Var 42)) in
+  let x1 = Ident.fresh() in
+  let x2 = Ident.fresh() in
+  let x3 = Ident.fresh() in
+  let e1_test = Expr.(t_of_node (Lambda{x=x1; tp=HOAS.u; body=HOAS.(var x1 + var x2)})) in
+    (*Expr.(t_of_node (Lambda (x1, Unit, Plus (Var x1, Var x2)))) in*)
+  let e1' = Expr.rename_var x2 x3 e1_test in
+  let e1_expected = Expr.(t_of_node (Lambda{x=x1; tp=HOAS.u; body=HOAS.(var x1 + var x3)})) in
+  (*let e1_expected = Expr.Lambda(x1, Unit, Plus (Var x1, Var x3)) in*)
   (* ensure only free occurrences renamed, bound var 1 unchanged *)
   check string "rename_var_free" (Expr.string_of_t e1') (Expr.string_of_t e1_expected);
 
-  let e2' = Expr.rename_var 1 42 e1_test in
+  let e2' = Expr.rename_var x1 x3 e1_test in
   check string "rename_var_bound" (Expr.string_of_t e2') (Expr.string_of_t e1_test)
 
 let test_expr_map_and_val_map () =
-  let e1 = Expr.(Plus (Const 3, Scale (Const 2, Var 5))) in
+  let x0 = Ident.fresh() in
+  let e1 = HOAS.(const 3 + const 2 * var x0) in
+  (*let e1 = Expr.(Plus (Const 3, Scale (Const 2, Var x0))) in*)
   let e1_mapped = Expr.map (fun x -> x + 1) e1 in
-  let e1_expected = Expr.(Plus (Const 4, Scale (Const 3, Var 5))) in
+  let e1_expected = HOAS.(const 4 + const 3 * var x0) in
+  (*let e1_expected = Expr.(Plus (Const 4, Scale (Const 3, Var x0))) in*)
   check string "expr_map" (Expr.string_of_t e1_mapped) (Expr.string_of_t e1_expected);
 
-  let v1 = Val.(Pair (Const 3, Val.Lambda (7, Unit, Const 2))) in
+  let x1 = Ident.fresh() in
+  let v1 = Val.(Pair (Const 3, Val.Lambda (x1, HOAS.u, HOAS.const 2))) in
   let v1_mapped = Val.map (fun x -> x * 2) v1 in
-  let v1_expected = Val.(Pair (Const 6, Lambda (7, Unit, Const 4))) in
+  let v1_expected = Val.(Pair (Const 6, Lambda (x1, HOAS.u, HOAS.const 4))) in
   check string "val_map" (Val.string_of_t v1_mapped) (Val.string_of_t v1_expected)
 
 let test_vzero_vplus_vscale_case_apply () =
   let open Eval2 in
   (* vzero Unit = Const 0 *)
-  check string "vzero Unit" (Val.string_of_t (vzero Unit)) ("0");
-  check string "vzero Pair" (Val.string_of_t (vzero (Sum (Unit, Arrow(Unit,Unit)))))
-              Val.(string_of_t (Pair(Const 0, Lambda(3, Unit, Expr.Const 0))));
+  check string "vzero Unit" (Val.string_of_t (vzero (HOAS.u))) ("0");
+  (match vzero HOAS.(u ++ lolli u u) with
+  | Val.Pair (Val.Const 0, Val.Lambda (_, alpha, body)) ->
+    (match alpha.node, body.node with
+    | Unit, Const 0 -> ()
+    | _, _ -> failf "Unexpected vzero result\n"
+    )
+  | v ->
+      failf "Unexpected vzero result: %s\n" (Val.string_of_t v));
 
   (* vplus on consts *)
   let plus_res = vplus (Val.Const 1) (Val.Const 1) in
@@ -78,6 +94,78 @@ let test_symplectic_form () =
   (* For Z2, 1*1 - 0*0 = 1 *)
   check int "symplectic_form" (Z2.int_of_t z) 1
 
+let parse_linear source : Ast.Expr.t =
+  match (Interface.parse source).node with
+  | LambdaPC.Expr.LExpr expr -> expr
+  | _ -> fail "Expected a LambdaC expression"
+
+let test_substitution_uses_symbol_identity () =
+  let expr = parse_linear "lambda x : Zd. var x" in
+  match expr.node with
+  | Lambda { x; body = { node = Var use; _ } as body; _ } ->
+      check bool "source locations differ" true (x.loc <> use.loc);
+      let substituted = Expr.subst x (HOAS.const 1) body in
+      check string "substitution matches the binder's symbol"
+        "Const(1)" (Expr.string_of_t substituted);
+      let replacement = Ident.fresh () in
+      (match (Expr.rename_var x replacement body).node with
+       | Var actual ->
+           check bool "renaming matches the binder's symbol" true
+             (Ident.equal replacement actual)
+       | _ -> fail "Expected renamed variable");
+      let unchanged = Expr.subst use (HOAS.const 1) expr in
+      check bool "lambda binder stops substitution by symbol" true
+        (Expr.alpha_equiv expr unchanged)
+  | _ -> fail "Expected an identity lambda"
+
+let test_substitution_respects_case_binders () =
+  let expr = parse_linear
+    ". case X of { in1 x -> var x | in2 z -> var z }" in
+  match expr.node with
+  | Case { a1 = { node = Var use1; _ }; a2 = { node = Var use2; _ }; _ } ->
+      List.iter
+        (fun use ->
+          let unchanged = Expr.subst use (HOAS.const 0) expr in
+          check bool "case binder stops substitution by symbol" true
+            (Expr.alpha_equiv expr unchanged))
+        [use1; use2]
+  | _ -> fail "Expected a case expression with variable branches"
+
+let test_normalize_parsed_binders () =
+  List.iter
+    (fun source ->
+      let expr = parse_linear source in
+      let normalized = PCLib.Typing.SmtLambdaCExpr.normalize expr in
+      check string source "Const(1)" (Expr.string_of_t normalized))
+    [ "(lambda x : Zd. var x) .@ 1"
+    ; ". case X of { in1 x -> var x | in2 z -> var z }"
+    ; "(lambda x : Zd. (lambda x : Zd. var x) .@ 1) .@ 0"
+    ]
+
+(*
+let test_fresh_api_seed_then_allocate () =
+  let reserved = Fresh.current () + 25 in
+  Fresh.seed reserved;
+  let x = Fresh.fresh ~hint:"unit_test" () in
+  check bool "fresh is above seeded id" true (x > reserved)
+
+let test_expr_update_env_seeds_fresh () =
+  let env = VariableEnvironment.create () in
+  let seeded_expr = Expr.Lambda (5000, Unit, Expr.Var 5000) in
+  Expr.update_env env seeded_expr;
+  let x = Fresh.fresh ~hint:"after_expr" () in
+  check bool "fresh is above expr binder" true (x > 5000)
+
+let test_eval_fresh_uses_seeded_allocator () =
+  let env = VariableEnvironment.create () in
+  let seeded_expr = Expr.Lambda (7000, Unit, Expr.Var 7000) in
+  Expr.update_env env seeded_expr;
+  match Eval2.vzero (Arrow (Unit, Unit)) with
+  | Val.Lambda (x, Unit, Expr.Const 0) ->
+      check bool "vzero binder is fresh" true (x > 7000)
+  | v ->
+      failf "Unexpected vzero arrow result: %s\n" (Val.string_of_t v)
+*)
 let suite =
   [ "TestEvalZ2", [
       test_case "Testing 5+3 = 8"   `Quick (fun () -> 
@@ -88,13 +176,13 @@ let suite =
 
       test_case "Testing function application" `Quick (fun () ->
         TestEval2.test_eval
-          HOAS.(lambda Unit (fun x -> x + x) @ (const 3))
+          HOAS.(lambda HOAS.u (fun x -> x + x) @ (const 3))
           HOAS.(const 6)
         );
 
       test_case "Testing case evaluation" `Quick (fun () ->
         TestEval2.test_eval
-          HOAS.(case (Expr.Pair(const 1, const 0))
+          HOAS.(case (pair (const 1) (const 0))
             (fun x1 -> x1)
             (fun _ -> const 11)
           )
@@ -105,5 +193,13 @@ let suite =
       test_case "Expr.map and Val.map" `Quick test_expr_map_and_val_map;
       test_case "vzero/vplus/vscale/Case/Apply" `Quick test_vzero_vplus_vscale_case_apply;
       test_case "symplectic_form" `Quick test_symplectic_form;
+      test_case "Substitution uses symbol identity" `Quick test_substitution_uses_symbol_identity;
+      test_case "Substitution respects case binders" `Quick test_substitution_respects_case_binders;
+      test_case "Normalize parsed binders" `Quick test_normalize_parsed_binders;
+      (*
+      test_case "Fresh API seed then allocate" `Quick test_fresh_api_seed_then_allocate;
+      test_case "Expr.update_env seeds freshness" `Quick test_expr_update_env_seeds_fresh;
+      test_case "Eval uses seeded freshness" `Quick test_eval_fresh_uses_seeded_allocator;
+      *)
     ];
   ]
