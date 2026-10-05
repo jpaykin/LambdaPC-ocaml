@@ -18,6 +18,6 @@ let to_tableau (n : int) (f : LambdaPC.Expr.pc) : tab =
   in
   { stabilizers; destabilizers }
 
-let had : tab =
-  { stabilizers   = [Eval2.evalClosed (Interface.parse "X")]
-  ; destabilizers = [Eval2.evalClosed (Interface.parse "Z")] }
+(* let had : tab = *)
+(*   { stabilizers   = [Eval2.evalClosed (Interface.parse "X")] *)
+(*   ; destabilizers = [Eval2.evalClosed (Interface.parse "Z")] } *)

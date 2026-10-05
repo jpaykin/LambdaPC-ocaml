@@ -1,3 +1,4 @@
+open Ident
 open LambdaPC
 
 module LinearityTyping : sig
@@ -15,14 +16,14 @@ module SmtLambdaCExpr : sig
   open LambdaC
     type normal =
       NConst of int
-    | NLambda of Variable.t * Type.t * normal
+    | NLambda of Ident.t * Type.t * normal
     | NPair of normal * normal
     | Annot of neutral * Type.t
     | Neutral of neutral
     and neutral =
-      NVar of Variable.t
+      NVar of Ident.t
     | NApply of neutral * normal
-    | NCase of neutral * Variable.t * normal * Variable.t * normal
+    | NCase of neutral * Ident.t * normal * Ident.t * normal
     | NPlus of neutral * normal
     | NScale of normal * neutral
 

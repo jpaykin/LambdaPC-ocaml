@@ -76,7 +76,15 @@ To interact with PCLib through the parser, use `open PCLib.Interface`. This expo
 
 ## Installation
 
-The repository uses the dune build system (https://dune.build/install). Operations include:
+To build LambdaPC, you will need to install ocaml (https://ocaml.org/install), including the package manager opam.
+You will then need to install the dune build system (https://dune.build) and the smtml library (https://github.com/formalsec/smtml) via opam:
+
+```
+    $ opam install dune
+    $ opam install smtml
+```
+
+You should then be able to build LambdaPC:
 
 * `dune build` - build the library
 * `dune exec LambdaPC` - run the `main` file, which currently calls out to `lib/examples.ml`

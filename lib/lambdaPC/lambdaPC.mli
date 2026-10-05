@@ -1,30 +1,48 @@
+open Ident
+
 module Type : sig
-    type t = Pauli | PTensor of t*t
+    type t = { loc : Loc.t option; node : node }
+    and node =
+      | Pauli
+      | PTensor of t * t
+    
+    
+    val pauli : t
+    val ( ** ) : t -> t -> t
+
+    val eq : t -> t -> bool
+    val t_of_node : node -> t
     val ltype_of_t : t -> LambdaC.Type.t
     val t_of_ltype : LambdaC.Type.t -> t option
     val string_of_t : t -> string
 end
-module Variable = LambdaC.Variable
-module VariableMap = LambdaC.VariableMap
 module Expr :
   sig
-    type t =
-        Var of Variable.t
-      | Annot of t * Type.t
-      | Let of t * Variable.t * t
+    type t = { loc : Loc.t option; ty : Type.t option; node : node }
+    and node =
+      | Var of Ident.t
+      | Let of { x : Ident.t; expr : t; body : t }
       | LExpr of LambdaC.Expr.t
       | Phase of LambdaC.Expr.t * t
       | Prod of t * t
       | Pow of t * LambdaC.Expr.t
-      | CasePauli of t * t * t
-      | In1 of t * Type.t
-      | In2 of Type.t * t
-      | CasePTensor of t * Variable.t * t * Variable.t * t
-      | Apply of pc * t
+      | CasePauli of { scrut : t; tx : t; tz : t }
+      | In1 of { tp : Type.t; v : t }
+      | In2 of { tp : Type.t; v : t }
+      | CasePTensor of { scrut : t; x1 : Ident.t; t1 : t; x2 : Ident.t; t2 : t }
+      | App of pc * t
       | Force of p
-    and pc = Lam of (Variable.t * Type.t * t)
-    and p = Suspend of t
+    
+    and pc = { loc : Loc.t option; ty : (Type.t * Type.t) option; node : pc_node }
+    and pc_node = Lam of { x : Ident.t; tp : Type.t; body : t }
+    
+    and p = { loc : Loc.t option; ty : Type.t option; node : p_node }
+    and p_node = Suspend of t
 
+    val t_of_node : node -> t
+    val pc_of_node : pc_node -> pc
+    val p_of_node : p_node -> p
+    
     val string_of_t : t -> string
     val string_of_pc : pc -> string
     val string_of_p : p -> string
@@ -32,7 +50,7 @@ module Expr :
     val pretty_string_of_pc : pc -> string
     val pretty_string_of_p : p -> string
 
-    val rename_var : int -> int -> t -> t
+    val rename_var : Ident.t -> Ident.t -> t -> t
   end
 module Val :
   sig
@@ -42,9 +60,8 @@ module Val :
   end
 
 module HOAS : sig
-  val fresh : unit -> Variable.t
 
-  val var : Variable.t -> Expr.t
+  val var : Ident.t -> Expr.t
   val letin : Expr.t -> (Expr.t -> Expr.t) -> Expr.t
   val vec : LambdaC.Expr.t -> Expr.t
   val phase : LambdaC.Expr.t -> Expr.t -> Expr.t
@@ -74,16 +91,10 @@ module PhaseEnvironment : functor (Zd : Scalars.Z_SIG) ->
       val add_phase : t -> Zd.t -> unit
       val add_integer_phase : t -> int -> unit
     end
-module Eval : functor(S : Scalars.SCALARS) ->
+module Eval : functor (S : Scalars.SCALARS) ->
     sig
-      module VarEnv = LambdaC.VariableEnvironment
-      val var_env : VarEnv.t ref
-      val set_variable_environment : VarEnv.t -> unit
-      val fresh : unit -> int
       module LEval :
         sig
-          val var_env : VarEnv.t ref
-          val set_variable_environment : VarEnv.t -> unit
           val vzero : LambdaC.Type.t -> LambdaC.Val.t
           val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
           val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t
@@ -93,8 +104,6 @@ module Eval : functor(S : Scalars.SCALARS) ->
         end
       module LEval' :
         sig
-          val var_env : VarEnv.t ref
-          val set_variable_environment : VarEnv.t -> unit
           val vzero : LambdaC.Type.t -> LambdaC.Val.t
           val vplus : LambdaC.Val.t -> LambdaC.Val.t -> LambdaC.Val.t
           val vscale : int -> LambdaC.Val.t -> LambdaC.Val.t
